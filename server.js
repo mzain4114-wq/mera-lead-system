@@ -1,4 +1,5 @@
 require('dotenv').config();
+const crypto = require('crypto');
 const express = require('express');
 const nodemailer = require('nodemailer');
 const twilio = require('twilio');
@@ -8,15 +9,17 @@ const { getDueForRedial, redial } = require('./requeue-check');
 const path = require('path');
 const app = express();
 app.use(express.json());
+app.use('/webhook/slack', express.urlencoded({
+  extended: true,
+  verify: (req, res, buf) => { req.rawBody = buf; }
+}));
 
-// Allow the dashboard to call this API even if it's ever hosted elsewhere.
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET,POST');
   next();
 });
 
-// ---------- dashboard auth ----------
 function requireKey(req, res, next) {
   const key = req.query.key || req.headers['x-dashboard-key'];
   if (!process.env.DASHBOARD_KEY) {
@@ -28,12 +31,10 @@ function requireKey(req, res, next) {
   next();
 }
 
-// ---------- serve the dashboard itself ----------
 app.get('/dashboard', requireKey, (req, res) => {
   res.sendFile(path.join(__dirname, 'dashboard', 'index.html'));
 });
 
-// ---------- mail ----------
 const mailer = nodemailer.createTransport({
   host: process.env.HOSTINGER_SMTP_HOST,
   port: Number(process.env.HOSTINGER_SMTP_PORT || 465),
@@ -45,17 +46,28 @@ async function sendEmail(to, subject, text) {
   return mailer.sendMail({ from: process.env.HOSTINGER_EMAIL, to, subject, text });
 }
 
-// ---------- telegram ----------
-async function sendTelegram(text) {
-  const url = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`;
-  await fetch(url, {
+async function sendSlack(text) {
+  await fetch(process.env.SLACK_WEBHOOK_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: process.env.TELEGRAM_CHAT_ID, text, parse_mode: 'Markdown' })
+    body: JSON.stringify({ text })
   });
 }
 
-// ---------- sms (toll-free fallback nudge) ----------
+function verifySlackRequest(req) {
+  const signature = req.headers['x-slack-signature'];
+  const timestamp = req.headers['x-slack-request-timestamp'];
+  if (!signature || !timestamp || !req.rawBody) return false;
+  if (Math.abs(Date.now() / 1000 - Number(timestamp)) > 60 * 5) return false;
+  const base = `v0:${timestamp}:${req.rawBody}`;
+  const expected = 'v0=' + crypto.createHmac('sha256', process.env.SLACK_SIGNING_SECRET).update(base).digest('hex');
+  try {
+    return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+  } catch {
+    return false;
+  }
+}
+
 const twilioClient = process.env.TWILIO_ACCOUNT_SID
   ? twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN)
   : null;
@@ -69,7 +81,6 @@ async function sendSms(to, body) {
   }
 }
 
-// ---------- zoom (server-to-server oauth, creates a real meeting per booking) ----------
 let zoomTokenCache = { token: null, expiresAt: 0 };
 
 async function getZoomAccessToken() {
@@ -125,7 +136,6 @@ async function createZoomMeeting(topic, zoomTimeRaw) {
   return meeting.join_url;
 }
 
-// ---------- outcome mapping ----------
 function resolveStatus(data) {
   if (data.ivr_detected) return 'voicemail';
   if (!data.interested) {
@@ -140,7 +150,6 @@ function resolveStatus(data) {
   return 'bad_contact';
 }
 
-// ================= WEBHOOK: Vapi end-of-call report =================
 app.post('/webhook/vapi', async (req, res) => {
   const authHeader = req.headers['authorization'] || '';
   const token = authHeader.replace(/^Bearer\s+/i, '');
@@ -173,11 +182,11 @@ app.post('/webhook/vapi', async (req, res) => {
         `Your call is booked${data.zoom_time ? ' — ' + data.zoom_time : ''}`,
         `Hi ${name},\n\nYou're confirmed for a quick call about your website${data.zoom_time ? ' on ' + data.zoom_time : ''}.\n\nJoin here: ${joinUrl}\n\nWe'll walk through what you're looking for and how we can help — should take about 15 minutes, no pressure either way.\n\nTalk soon,\nAlpha Logics`
       );
-      await sendTelegram(`✅ Zoom booked with *${name}*${data.zoom_time ? ' for ' + data.zoom_time : ''} — confirmation emailed.`);
+      await sendSlack(`✅ Zoom booked with *${name}*${data.zoom_time ? ' for ' + data.zoom_time : ''} — confirmation emailed.`);
     } else if (status === 'wants_website_pending') {
-      await sendTelegram(`🔨 *${name}* wants their site emailed.\nLead #${lead.id} — ${lead.email}\nReply: \`/send ${lead.id} https://link.com\` when it's ready.`);
+      await sendSlack(`🔨 *${name}* wants their site emailed.\nLead #${lead.id} — ${lead.email}\nReply: \`/send ${lead.id} https://link.com\` when it's ready.`);
     } else if (status === 'bad_contact') {
-      await sendTelegram(`📞 *${name}* was interested but the contact info didn't come through clean. Lead #${lead.id} — worth a manual callback.`);
+      await sendSlack(`📞 *${name}* was interested but the contact info didn't come through clean. Lead #${lead.id} — worth a manual callback.`);
     } else if (status === 'voicemail' || status === 'no_answer') {
       if ((lead.call_attempts || 1) === 1) {
         await sendSms(phone, `Hi, this is Alphalogics — tried reaching you about your website. Reply here anytime, or we'll try again soon.`);
@@ -185,22 +194,23 @@ app.post('/webhook/vapi', async (req, res) => {
     }
   } catch (e) {
     console.error('Post-call action failed:', e.message);
-    await sendTelegram(`⚠️ Action failed for lead #${lead.id} (${name}): ${e.message}`).catch(() => {});
+    await sendSlack(`⚠️ Action failed for lead #${lead.id} (${name}): ${e.message}`).catch(() => {});
   }
 
   res.sendStatus(200);
 });
 
-// ================= TELEGRAM: reply commands =================
-app.post('/webhook/telegram', async (req, res) => {
-  const text = req.body?.message?.text || '';
-  const [cmd, idStr, url] = text.trim().split(/\s+/);
+app.post('/webhook/slack', async (req, res) => {
+  if (!verifySlackRequest(req)) return res.sendStatus(401);
+
+  const cmd = req.body.command;
+  const [idStr, url] = (req.body.text || '').trim().split(/\s+/);
 
   if (cmd === '/send' && idStr && url) {
     const leads = readLeads();
     const lead = leads.find(l => String(l.id) === idStr);
     if (!lead) {
-      await sendTelegram(`No lead found with id ${idStr}.`);
+      await sendSlack(`No lead found with id ${idStr}.`);
       return res.sendStatus(200);
     }
     try {
@@ -213,22 +223,21 @@ app.post('/webhook/telegram', async (req, res) => {
       const idx = all.findIndex(l => l.id === lead.id);
       all[idx].status = 'website_sent';
       require('./leads-store').writeLeads(all);
-      await sendTelegram(`✅ Sent to *${lead.name}* (#${lead.id}).`);
+      await sendSlack(`✅ Sent to *${lead.name}* (#${lead.id}).`);
     } catch (e) {
-      await sendTelegram(`⚠️ Failed to send to #${lead.id}: ${e.message}`);
+      await sendSlack(`⚠️ Failed to send to #${lead.id}: ${e.message}`);
     }
   } else if (cmd === '/pending') {
     const pending = readLeads().filter(l => l.status === 'wants_website_pending');
     const list = pending.length
       ? pending.map(l => `#${l.id} — ${l.name}`).join('\n')
       : 'Nothing pending.';
-    await sendTelegram(`🔨 Waiting on you:\n${list}`);
+    await sendSlack(`🔨 Waiting on you:\n${list}`);
   }
 
   res.sendStatus(200);
 });
 
-// ================= DASHBOARD API =================
 app.get('/api/leads', requireKey, (req, res) => {
   const leads = [...readLeads()]
     .sort((a, b) => new Date(b.time) - new Date(a.time))
@@ -252,7 +261,6 @@ app.get('/leads/needs-follow-up', requireKey, (req, res) => {
   res.json(readLeads().filter(l => l.status === 'bad_contact'));
 });
 
-// ================= RETRY QUEUE CRON =================
 app.get('/cron/redial', async (req, res) => {
   if (req.query.key !== process.env.CRON_SECRET) return res.sendStatus(401);
   const due = getDueForRedial();
@@ -268,7 +276,6 @@ app.get('/cron/redial', async (req, res) => {
   res.json({ redialed: results.length, results });
 });
 
-// ================= HEALTH =================
 app.get('/health', (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
 
 const PORT = process.env.PORT || 3000;
