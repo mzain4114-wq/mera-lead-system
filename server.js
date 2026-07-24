@@ -92,7 +92,9 @@ function resolveStatus(data) {
 
 // ================= WEBHOOK: Vapi end-of-call report =================
 app.post('/webhook/vapi', async (req, res) => {
-  if (req.headers['x-vapi-secret'] !== process.env.VAPI_WEBHOOK_SECRET) {
+  const authHeader = req.headers['authorization'] || '';
+  const token = authHeader.replace(/^Bearer\s+/i, '');
+  if (token !== process.env.VAPI_WEBHOOK_SECRET) {
     return res.sendStatus(401);
   }
 
