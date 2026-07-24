@@ -204,7 +204,11 @@ app.post('/webhook/telegram', async (req, res) => {
       return res.sendStatus(200);
     }
     try {
-      await sendEmail(lead.email, 'Here\'s the website we built for you', `Hi ${lead.name},\n\nHere's the link: ${url}\n\nLet us know what you think!`);
+      await sendEmail(
+        lead.email,
+        'Your website is ready',
+        `Hi ${lead.name},\n\nYour website is ready — take a look here: ${url}\n\nLet us know if you'd like any changes or have any questions.\n\nTalk soon,\nAlpha Logics`
+      );
       const all = readLeads();
       const idx = all.findIndex(l => l.id === lead.id);
       all[idx].status = 'website_sent';
