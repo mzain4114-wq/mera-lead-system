@@ -17,14 +17,9 @@ app.use((req, res, next) => {
 });
 
 // ---------- dashboard auth ----------
-// Everything with customer PII (names, emails, phone numbers) requires this
-// key. Set DASHBOARD_KEY in your env, then use the dashboard at:
-//   https://<your-app>/dashboard?key=<DASHBOARD_KEY>
-// The page reads the key from the URL once and reuses it for every API call.
 function requireKey(req, res, next) {
   const key = req.query.key || req.headers['x-dashboard-key'];
   if (!process.env.DASHBOARD_KEY) {
-    // Fail closed: if you forgot to set it, don't silently expose leads.
     return res.status(500).json({ error: 'DASHBOARD_KEY not configured on the server' });
   }
   if (key !== process.env.DASHBOARD_KEY) {
@@ -74,8 +69,63 @@ async function sendSms(to, body) {
   }
 }
 
+// ---------- zoom (server-to-server oauth, creates a real meeting per booking) ----------
+let zoomTokenCache = { token: null, expiresAt: 0 };
+
+async function getZoomAccessToken() {
+  if (zoomTokenCache.token && Date.now() < zoomTokenCache.expiresAt) {
+    return zoomTokenCache.token;
+  }
+  const params = new URLSearchParams({
+    grant_type: 'account_credentials',
+    account_id: process.env.ZOOM_ACCOUNT_ID
+  });
+  const auth = Buffer.from(`${process.env.ZOOM_CLIENT_ID}:${process.env.ZOOM_CLIENT_SECRET}`).toString('base64');
+  const resp = await fetch(`https://zoom.us/oauth/token?${params}`, {
+    method: 'POST',
+    headers: { Authorization: `Basic ${auth}` }
+  });
+  if (!resp.ok) {
+    throw new Error(`Zoom token request failed: ${resp.status} ${await resp.text()}`);
+  }
+  const json = await resp.json();
+  zoomTokenCache = { token: json.access_token, expiresAt: Date.now() + (json.expires_in - 60) * 1000 };
+  return json.access_token;
+}
+
+async function createZoomMeeting(topic, zoomTimeRaw) {
+  const token = await getZoomAccessToken();
+  const parsed = zoomTimeRaw ? new Date(zoomTimeRaw) : null;
+  const hasValidTime = parsed && !isNaN(parsed.getTime());
+
+  const body = hasValidTime
+    ? {
+        topic,
+        type: 2,
+        start_time: parsed.toISOString(),
+        duration: 30,
+        timezone: 'UTC',
+        settings: { join_before_host: true, waiting_room: false }
+      }
+    : {
+        topic,
+        type: 1,
+        settings: { join_before_host: true, waiting_room: false }
+      };
+
+  const resp = await fetch('https://api.zoom.us/v2/users/me/meetings', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!resp.ok) {
+    throw new Error(`Zoom meeting creation failed: ${resp.status} ${await resp.text()}`);
+  }
+  const meeting = await resp.json();
+  return meeting.join_url;
+}
+
 // ---------- outcome mapping ----------
-// Turns Vapi's structured data (see vapi-analysis-plan.json) into one status label.
 function resolveStatus(data) {
   if (data.ivr_detected) return 'voicemail';
   if (!data.interested) {
@@ -98,7 +148,7 @@ app.post('/webhook/vapi', async (req, res) => {
     return res.sendStatus(401);
   }
 
-  const msg = req.body.message || req.body; // Vapi wraps payload in "message"
+  const msg = req.body.message || req.body;
   const call = msg.call || {};
   const data = msg.analysis?.structuredData || {};
   const phone = call.customer?.number || 'unknown';
@@ -117,10 +167,11 @@ app.post('/webhook/vapi', async (req, res) => {
 
   try {
     if (status === 'booked') {
+      const joinUrl = await createZoomMeeting(`Call with ${name} — Alpha Logics`, data.zoom_time);
       await sendEmail(
         lead.email,
-        'Your meeting is confirmed',
-        `Hi ${name},\n\nConfirming our Zoom meeting${data.zoom_time ? ' for ' + data.zoom_time : ''}.\nJoin here: ${process.env.ZOOM_MEETING_LINK}\n\nSee you then!`
+        `Your call is booked${data.zoom_time ? ' — ' + data.zoom_time : ''}`,
+        `Hi ${name},\n\nYou're confirmed for a quick call about your website${data.zoom_time ? ' on ' + data.zoom_time : ''}.\n\nJoin here: ${joinUrl}\n\nWe'll walk through what you're looking for and how we can help — should take about 15 minutes, no pressure either way.\n\nTalk soon,\nAlpha Logics`
       );
       await sendTelegram(`✅ Zoom booked with *${name}*${data.zoom_time ? ' for ' + data.zoom_time : ''} — confirmation emailed.`);
     } else if (status === 'wants_website_pending') {
@@ -128,7 +179,6 @@ app.post('/webhook/vapi', async (req, res) => {
     } else if (status === 'bad_contact') {
       await sendTelegram(`📞 *${name}* was interested but the contact info didn't come through clean. Lead #${lead.id} — worth a manual callback.`);
     } else if (status === 'voicemail' || status === 'no_answer') {
-      // First miss gets a text nudge; retry queue handles the redial.
       if ((lead.call_attempts || 1) === 1) {
         await sendSms(phone, `Hi, this is Alphalogics — tried reaching you about your website. Reply here anytime, or we'll try again soon.`);
       }
@@ -191,7 +241,6 @@ app.get('/api/stats', requireKey, (req, res) => {
   res.json({ totalCalls: leads.length, pulse });
 });
 
-// legacy simple lists (kept for quick manual checks)
 app.get('/leads/pending', requireKey, (req, res) => {
   res.json(readLeads().filter(l => l.status === 'wants_website_pending'));
 });
