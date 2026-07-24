@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mera — Lead Line</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+
+  :root{
+    --ink:#0B0F14;
+    --panel:#121821;
+    --panel-edge:#1D2530;
+    --line:#232C38;
+    --text:#E7ECEF;
+    --muted:#7C8A9A;
+    --green:#3ED598;
+    --green-dim:#1E4B3B;
+    --amber:#F5A623;
+    --amber-dim:#4A3A16;
+    --cyan:#4FD1E8;
+    --red:#E8615A;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--ink);
+    color:var(--text);
+    font-family:'IBM Plex Sans',sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .mono{font-family:'IBM Plex Mono',monospace;}
+  .wrap{max-width:1180px;margin:0 auto;padding:36px 28px 80px;}
+
+  /* header */
+  header{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:28px;flex-wrap:wrap;gap:16px;}
+  .brand{font-family:'IBM Plex Mono',monospace;font-size:13px;letter-spacing:.14em;color:var(--muted);text-transform:uppercase;}
+  h1{margin:6px 0 0;font-size:28px;font-weight:600;letter-spacing:-0.01em;}
+  .clock{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--muted);text-align:right;}
+  .clock .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);margin-right:6px;box-shadow:0 0 8px var(--green);}
+  .clock .dot.off{background:var(--red);box-shadow:0 0 8px var(--red);}
+
+  /* config bar */
+  .cfg{display:flex;gap:10px;align-items:center;background:var(--panel);border:1px solid var(--panel-edge);border-radius:10px;padding:10px 14px;margin-bottom:28px;flex-wrap:wrap;}
+  .cfg label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-family:'IBM Plex Mono',monospace;}
+  .cfg input{flex:1;min-width:220px;background:var(--ink);border:1px solid var(--panel-edge);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:12px;}
+  .cfg input:focus{outline:none;border-color:var(--cyan);}
+  .cfg button{background:var(--cyan);color:var(--ink);border:none;padding:8px 16px;border-radius:6px;font-weight:600;font-size:12px;cursor:pointer;font-family:'IBM Plex Sans',sans-serif;}
+  .cfg button:hover{opacity:.88;}
+  .cfg .hint{font-size:11px;color:var(--muted);}
+
+  /* pulse line — signature element */
+  .pulse-card{background:var(--panel);border:1px solid var(--panel-edge);border-radius:12px;padding:20px 22px 16px;margin-bottom:28px;}
+  .pulse-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px;}
+  .pulse-head h2{font-size:12px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);font-weight:500;margin:0;font-family:'IBM Plex Mono',monospace;}
+  .pulse-head .count{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--muted);}
+  .pulse-track{display:flex;align-items:flex-end;gap:2px;height:64px;overflow-x:auto;padding-bottom:4px;}
+  .tick{flex:0 0 5px;border-radius:2px 2px 0 0;min-height:4px;transition:height .3s;}
+  .tick.booked{background:var(--green);}
+  .tick.pending{background:var(--amber);}
+  .tick.no{background:var(--line);}
+  .tick.followup{background:var(--red);}
+  .legend{display:flex;gap:18px;margin-top:12px;font-size:11px;color:var(--muted);flex-wrap:wrap;}
+  .legend span{display:inline-flex;align-items:center;gap:6px;}
+  .legend i{width:8px;height:8px;border-radius:2px;display:inline-block;}
+
+  /* funnel */
+  .funnel{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:28px;}
+  .fstage{background:var(--panel);border:1px solid var(--panel-edge);border-radius:12px;padding:18px 18px 16px;position:relative;overflow:hidden;}
+  .fstage .n{font-family:'IBM Plex Mono',monospace;font-size:34px;font-weight:600;line-height:1;}
+  .fstage .lbl{margin-top:8px;font-size:12.5px;color:var(--muted);}
+  .fstage .bar{position:absolute;bottom:0;left:0;height:3px;background:var(--cyan);}
+  .fstage:nth-child(1) .bar{background:var(--cyan);}
+  .fstage:nth-child(2) .bar{background:var(--amber);}
+  .fstage:nth-child(3) .bar{background:var(--green);}
+  .fstage:nth-child(4) .bar{background:#8B7FE8;}
+
+  /* action queue + table */
+  .grid{display:grid;grid-template-columns:1fr 1.6fr;gap:20px;align-items:start;}
+  @media (max-width:860px){.grid{grid-template-columns:1fr;}}
+
+  .panel-box{background:var(--panel);border:1px solid var(--panel-edge);border-radius:12px;padding:18px;}
+  .panel-box h3{margin:0 0 4px;font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:500;font-family:'IBM Plex Mono',monospace;}
+  .panel-box .sub{font-size:12px;color:var(--muted);margin-bottom:14px;}
+
+  .action-item{display:flex;justify-content:space-between;align-items:center;padding:11px 0;border-bottom:1px solid var(--line);}
+  .action-item:last-child{border-bottom:none;}
+  .action-item .who{font-weight:600;font-size:14px;}
+  .action-item .why{font-size:11.5px;color:var(--muted);margin-top:2px;font-family:'IBM Plex Mono',monospace;}
+  .tag{font-family:'IBM Plex Mono',monospace;font-size:10.5px;padding:3px 8px;border-radius:20px;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;}
+  .tag.build{background:var(--amber-dim);color:var(--amber);}
+  .tag.retry{background:#4A2320;color:var(--red);}
+
+  table{width:100%;border-collapse:collapse;}
+  thead th{text-align:left;font-family:'IBM Plex Mono',monospace;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:500;padding:0 10px 10px 0;border-bottom:1px solid var(--panel-edge);}
+  tbody td{padding:11px 10px 11px 0;border-bottom:1px solid var(--line);font-size:13px;}
+  tbody tr:last-child td{border-bottom:none;}
+  .status-dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:7px;}
+  .status-dot.booked{background:var(--green);}
+  .status-dot.pending{background:var(--amber);}
+  .status-dot.followup{background:var(--red);}
+  .status-dot.no{background:var(--muted);}
+  .name{font-weight:600;}
+  .time{color:var(--muted);font-family:'IBM Plex Mono',monospace;font-size:12px;}
+
+  .empty{padding:24px 0;text-align:center;color:var(--muted);font-size:13px;}
+  footer{margin-top:36px;font-size:11.5px;color:var(--muted);font-family:'IBM Plex Mono',monospace;text-align:center;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div>
+      <div class="brand">Alphalogics · Mera Outbound</div>
+      <h1>Lead Line</h1>
+    </div>
+    <div class="clock mono" id="clock"><span class="dot" id="statusDot"></span><span id="statusText">demo data</span></div>
+  </header>
+
+  <div class="cfg">
+    <label class="mono" for="apiInput">API base</label>
+    <input id="apiInput" class="mono" placeholder="https://your-app.up.railway.app" />
+    <button id="connectBtn">Connect</button>
+    <span class="hint" id="cfgHint">Not connected — showing sample data below. Paste your Railway URL and click Connect.</span>
+  </div>
+
+  <div class="pulse-card">
+    <div class="pulse-head">
+      <h2>Call Line — last 60 calls</h2>
+      <span class="count mono" id="pulseCount">0 calls</span>
+    </div>
+    <div class="pulse-track" id="pulseTrack"></div>
+    <div class="legend">
+      <span><i style="background:var(--green)"></i>Booked / requested & sent</span>
+      <span><i style="background:var(--amber)"></i>Wants site — waiting on you</span>
+      <span><i style="background:var(--red)"></i>Needs follow-up (bad email/IVR)</span>
+      <span><i style="background:var(--line)"></i>Not interested</span>
+    </div>
+  </div>
+
+  <div class="funnel">
+    <div class="fstage"><div class="n mono" id="fCalls">0</div><div class="lbl">Calls placed</div><div class="bar" style="width:100%"></div></div>
+    <div class="fstage"><div class="n mono" id="fInterested">0</div><div class="lbl">Interested</div><div class="bar" id="barInterested"></div></div>
+    <div class="fstage"><div class="n mono" id="fBooked">0</div><div class="lbl">Zoom booked</div><div class="bar" id="barBooked"></div></div>
+    <div class="fstage"><div class="n mono" id="fSent">0</div><div class="lbl">Links sent</div><div class="bar" id="barSent"></div></div>
+  </div>
+
+  <div class="grid">
+    <div class="panel-box">
+      <h3>Waiting on you</h3>
+      <div class="sub">Reply <code>/send &lt;id&gt; &lt;url&gt;</code> in Telegram once built</div>
+      <div id="actionList"></div>
+    </div>
+
+    <div class="panel-box">
+      <h3>Recent calls</h3>
+      <div class="sub">Every completed call, newest first</div>
+      <table>
+        <thead>
+          <tr><th>Prospect</th><th>Outcome</th><th>Email</th><th>Time</th></tr>
+        </thead>
+        <tbody id="leadsBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <footer>Auto-refreshes every 30s while connected · Mera / Vapi + Twilio</footer>
+</div>
+
+<script>
+const STATUS_META = {
+  booked:    {label:'Zoom booked',      cls:'booked'},
+  sent:      {label:'Link sent',        cls:'booked'},
+  pending:   {label:'Awaiting site',    cls:'pending'},
+  followup:  {label:'Needs follow-up',  cls:'followup'},
+  no:        {label:'Not interested',   cls:'no'}
+};
+
+function demoData(){
+  const names = ['Bright Smile Dental','Riverside Plumbing','Anna\\'s Bakery','Metro Auto Repair','Sunset Yoga Studio','Hartline Legal','Delta Roofing','Pixel Print Co','Northgate Realty','Fresh Cuts Barber','Blue Ridge Landscaping','Vista Dental Care'];
+  const outcomes = ['booked','sent','pending','followup','no','no','pending','booked','no','sent','followup','no'];
+  const leads = names.map((n,i)=>({
+    id: i+1,
+    name:n,
+    outcome:outcomes[i],
+    email: outcomes[i]==='followup' ? null : n.toLowerCase().replace(/[^a-z]/g,'').slice(0,8)+'@business.com',
+    time: new Date(Date.now() - i*47*60000).toISOString()
+  }));
+  const pulse = Array.from({length:60},()=>{
+    const r = Math.random();
+    if(r<0.18) return 'booked';
+    if(r<0.30) return 'pending';
+    if(r<0.38) return 'followup';
+    return 'no';
+  });
+  return {leads, pulse, totalCalls: 214};
+}
+
+const urlParams = new URLSearchParams(window.location.search);
+let apiBase = urlParams.get('api') || window.location.origin;
+let dashKey = urlParams.get('key') || '';
+let refreshTimer = null;
+
+function withKey(url){
+  const u = new URL(url);
+  if (dashKey) u.searchParams.set('key', dashKey);
+  return u.toString();
+}
+
+function render(data){
+  const { leads, pulse, totalCalls } = data;
+
+  // pulse track
+  const track = document.getElementById('pulseTrack');
+  track.innerHTML = '';
+  pulse.forEach(o=>{
+    const d = document.createElement('div');
+    const h = o==='no' ? 10 : o==='pending' ? 34 : o==='followup' ? 22 : 56;
+    d.className = 'tick ' + o;
+    d.style.height = h+'px';
+    track.appendChild(d);
+  });
+  document.getElementById('pulseCount').textContent = totalCalls + ' calls total';
+
+  // funnel
+  const interested = leads.filter(l=>l.outcome!=='no').length;
+  const booked = leads.filter(l=>l.outcome==='booked').length;
+  const sent = leads.filter(l=>l.outcome==='sent'||l.outcome==='booked').length;
+  document.getElementById('fCalls').textContent = totalCalls;
+  document.getElementById('fInterested').textContent = interested;
+  document.getElementById('fBooked').textContent = booked;
+  document.getElementById('fSent').textContent = sent;
+  document.getElementById('barInterested').style.width = Math.round(100*interested/Math.max(leads.length,1))+'%';
+  document.getElementById('barBooked').style.width = Math.round(100*booked/Math.max(leads.length,1))+'%';
+  document.getElementById('barSent').style.width = Math.round(100*sent/Math.max(leads.length,1))+'%';
+
+  // action queue: pending (waiting on you) + followup (bad email)
+  const queue = leads.filter(l=>l.outcome==='pending'||l.outcome==='followup');
+  const actionList = document.getElementById('actionList');
+  actionList.innerHTML = '';
+  if(queue.length===0){
+    actionList.innerHTML = '<div class="empty">Nothing waiting — queue is clear.</div>';
+  } else {
+    queue.forEach(l=>{
+      const row = document.createElement('div');
+      row.className = 'action-item';
+      const tagCls = l.outcome==='pending' ? 'build' : 'retry';
+      const tagLbl = l.outcome==='pending' ? 'build site' : 'bad contact';
+      const why = l.outcome==='pending' ? 'Wants website emailed — /send '+l.id+' <url>' : 'Email unclear on call — call back';
+      row.innerHTML = `<div><div class="who">${l.name}</div><div class="why">${why}</div></div><span class="tag ${tagCls}">${tagLbl}</span>`;
+      actionList.appendChild(row);
+    });
+  }
+
+  // table
+  const body = document.getElementById('leadsBody');
+  body.innerHTML = '';
+  leads.forEach(l=>{
+    const meta = STATUS_META[l.outcome];
+    const tr = document.createElement('tr');
+    const t = new Date(l.time);
+    const timeStr = t.toLocaleDateString(undefined,{month:'short',day:'numeric'})+' '+t.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'});
+    tr.innerHTML = `
+      <td class="name">${l.name}</td>
+      <td><span class="status-dot ${meta.cls}"></span>${meta.label}</td>
+      <td class="mono" style="color:var(--muted)">${l.email || '—'}</td>
+      <td class="time">${timeStr}</td>`;
+    body.appendChild(tr);
+  });
+}
+
+async function fetchLive(){
+  try{
+    const [statsRes, leadsRes] = await Promise.all([
+      fetch(withKey(apiBase.replace(/\/$/,'') + '/api/stats')),
+      fetch(withKey(apiBase.replace(/\/$/,'') + '/api/leads'))
+    ]);
+    if (statsRes.status === 401 || leadsRes.status === 401) throw new Error('unauthorized — check the ?key= in your URL');
+    if(!statsRes.ok || !leadsRes.ok) throw new Error('bad response');
+    const stats = await statsRes.json();
+    const leads = await leadsRes.json();
+    render({ leads: leads.leads || leads, pulse: stats.pulse || [], totalCalls: stats.totalCalls || (leads.leads||leads).length });
+    document.getElementById('statusDot').classList.remove('off');
+    document.getElementById('statusText').textContent = 'live · ' + apiBase.replace(/^https?:\/\//,'');
+    document.getElementById('cfgHint').textContent = 'Connected. Refreshing every 30s.';
+  }catch(e){
+    document.getElementById('statusDot').classList.add('off');
+    document.getElementById('statusText').textContent = 'connection failed';
+    document.getElementById('cfgHint').textContent = 'Could not reach that URL — check it\\'s live and CORS is enabled, see notes below. Showing sample data.';
+    render(demoData());
+  }
+}
+
+document.getElementById('connectBtn').addEventListener('click', ()=>{
+  const val = document.getElementById('apiInput').value.trim();
+  if(!val) return;
+  apiBase = val;
+  clearInterval(refreshTimer);
+  fetchLive();
+  refreshTimer = setInterval(fetchLive, 30000);
+});
+
+function tickClock(){
+  document.getElementById('clock').firstChild; // no-op, status text owns this line
+}
+
+// initial load: if we're being served from the API's own /dashboard route
+// with a key in the URL, connect automatically. Otherwise fall back to the
+// manual "API base" flow (for hosting the dashboard separately).
+document.getElementById('apiInput').value = apiBase;
+if (dashKey) {
+  fetchLive();
+  refreshTimer = setInterval(fetchLive, 30000);
+} else {
+  render(demoData());
+  document.getElementById('cfgHint').textContent = 'No ?key= in the URL — showing sample data. Open this page as /dashboard?key=YOUR_DASHBOARD_KEY instead.';
+}
+</script>
+</body>
+</html>

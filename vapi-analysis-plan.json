@@ -1,0 +1,80 @@
+{
+  "analysisPlan": {
+    "summaryPlan": {
+      "enabled": true,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert note-taker. Summarize this call in 2-3 sentences: what was offered, how the prospect responded, and what the next action should be."
+        }
+      ]
+    },
+    "structuredDataPlan": {
+      "enabled": true,
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an expert data extractor. You will be given a transcript of a cold-outreach call offering a free website. Extract structured data per the JSON Schema."
+        }
+      ],
+      "schema": {
+        "type": "object",
+        "properties": {
+          "interested": {
+            "type": "boolean",
+            "description": "True if the prospect showed any interest in the offer during the call."
+          },
+          "zoom_scheduled": {
+            "type": "boolean",
+            "description": "True if the prospect explicitly agreed to a Zoom meeting."
+          },
+          "zoom_time": {
+            "type": "string",
+            "description": "The agreed meeting time in the prospect's own words, e.g. 'tomorrow 3pm'. Empty string if no meeting was booked."
+          },
+          "wants_website": {
+            "type": "boolean",
+            "description": "True if the prospect asked to be emailed a sample website / portfolio link instead of booking a meeting."
+          },
+          "email": {
+            "type": "string",
+            "description": "The email address the prospect spelled out, exactly as captured. Empty string if none was given."
+          },
+          "email_confidence": {
+            "type": "string",
+            "enum": ["high", "low", "none"],
+            "description": "high = spelled clearly and confirmed back; low = garbled, cut off, or unconfirmed; none = not provided."
+          },
+          "ivr_detected": {
+            "type": "boolean",
+            "description": "True if the call hit an automated system/IVR/voicemail instead of a person."
+          },
+          "objection": {
+            "type": "string",
+            "description": "The main reason given for declining. Empty string if not applicable."
+          },
+          "best_callback_time": {
+            "type": "string",
+            "description": "If the prospect asked to be called back later, the time they mentioned. Empty string otherwise."
+          },
+          "call_outcome": {
+            "type": "string",
+            "enum": ["booked", "wants_website", "no_answer", "voicemail", "declined", "callback_requested", "bad_contact"],
+            "description": "Single-label summary of how the call ended. 'bad_contact' = interested but email_confidence is low/none."
+          }
+        },
+        "required": ["interested", "call_outcome"]
+      }
+    },
+    "successEvaluationPlan": {
+      "enabled": true,
+      "rubric": "PassFail",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Evaluate whether this call achieved its objective: the prospect either agreed to a Zoom meeting, or asked to receive the website by email and provided a usable email address. Anything else (not interested, no answer, voicemail, or interested with no usable contact captured) is a failure."
+        }
+      ]
+    }
+  }
+}
