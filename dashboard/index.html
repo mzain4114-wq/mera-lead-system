@@ -178,7 +178,7 @@ const STATUS_META = {
 };
 
 function demoData(){
-  const names = ['Bright Smile Dental','Riverside Plumbing','Anna\\'s Bakery','Metro Auto Repair','Sunset Yoga Studio','Hartline Legal','Delta Roofing','Pixel Print Co','Northgate Realty','Fresh Cuts Barber','Blue Ridge Landscaping','Vista Dental Care'];
+  const names = ['Bright Smile Dental','Riverside Plumbing','Anna\'s Bakery','Metro Auto Repair','Sunset Yoga Studio','Hartline Legal','Delta Roofing','Pixel Print Co','Northgate Realty','Fresh Cuts Barber','Blue Ridge Landscaping','Vista Dental Care'];
   const outcomes = ['booked','sent','pending','followup','no','no','pending','booked','no','sent','followup','no'];
   const leads = names.map((n,i)=>({
     id: i+1,
@@ -287,7 +287,7 @@ async function fetchLive(){
   }catch(e){
     document.getElementById('statusDot').classList.add('off');
     document.getElementById('statusText').textContent = 'connection failed';
-    document.getElementById('cfgHint').textContent = 'Could not reach that URL — check it\\'s live and CORS is enabled, see notes below. Showing sample data.';
+    document.getElementById('cfgHint').textContent = 'Could not reach that URL — check it\'s live and CORS is enabled, see notes below. Showing sample data.';
     render(demoData());
   }
 }
