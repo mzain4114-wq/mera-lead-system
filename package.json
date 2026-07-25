@@ -1,7 +1,7 @@
 {
   "name": "mera-lead-system",
   "version": "2.0.0",
-  "description": "End-to-end lead automation for Mera (Vapi outbound voice agent): webhook intake, qualification, auto-email, Telegram control loop, redial queue, and a stats dashboard.",
+  "description": "End-to-end lead automation for Mera (Vapi outbound voice agent): webhook intake, qualification, auto-email, Slack control loop, redial queue, and a stats dashboard.",
   "main": "server.js",
   "type": "commonjs",
   "scripts": {

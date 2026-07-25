@@ -2,7 +2,7 @@
 
 This is the complete loop: Vapi calls a prospect → structured data comes back →
 this server decides what happened → qualified leads get emailed automatically →
-you get a Telegram ping → you reply to trigger the next step → a dashboard shows
+you get a Slack ping → you reply to trigger the next step → a dashboard shows
 you all of it without opening a single call log.
 
 Everything lives in one repo. Deploy once, then it runs itself.
@@ -42,13 +42,18 @@ You should see `structuredDataPlan`, `successEvaluationPlan`, and
 4. While you're in here: turn on **Voicemail Detection** (LLM-based, not legacy
    Twilio AMD) and set Max Detection Retries to 3.
 
-## 2. Telegram — create your control bot
+## 2. Slack — create your control app
 
-1. Message **@BotFather** on Telegram → `/newbot` → follow the prompts → copy the
-   token it gives you into `TELEGRAM_BOT_TOKEN`.
-2. Message **@userinfobot** to get your own numeric chat ID → put it in
-   `TELEGRAM_CHAT_ID`.
-3. You'll point the bot's webhook at your server after deploying — see step 5.
+1. Go to api.slack.com/apps -> Create New App -> "From scratch" -> pick your workspace.
+2. Incoming Webhooks -> toggle on -> Add New Webhook to Workspace -> choose the
+   channel you want pings in -> copy the webhook URL into `SLACK_WEBHOOK_URL`.
+3. Slash Commands -> create `/send` and `/pending`, both with the Request URL
+   `https://<your-railway-app>.up.railway.app/webhook/slack` -- one route handles both.
+4. Basic Information -> App Credentials -> copy the Signing Secret into
+   `SLACK_SIGNING_SECRET` (used to verify incoming slash-command requests are
+   really from Slack).
+5. Install the app to your workspace. You'll need to reinstall it any time you
+   add or change slash commands.
 
 ## 3. Twilio — toll-free number for SMS fallback
 
@@ -81,10 +86,9 @@ standard SMTP — leave them unless your plan says otherwise.
    copy the generated public URL (or set a custom domain).
 5. Go back to Vapi (step 1) and set the Server URL to
    `https://<that-url>/webhook/vapi`.
-6. Set your Telegram bot's webhook so replies reach the server:
-   ```
-   curl "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook?url=https://<that-url>/webhook/telegram"
-   ```
+6. Slack's slash commands already point at `/webhook/slack` from step 2 above --
+   nothing further to configure here, just make sure the Request URL there
+   matches your final Railway domain.
 
 ## 6. Redial cron
 
@@ -134,9 +138,9 @@ In the Vapi dashboard, open **Evals**:
 
 - Campaign runs as normal in Vapi.
 - Every finished call hits `/webhook/vapi` automatically — no log-reading.
-- Booked meetings get confirmed by email + you get a ✅ Telegram ping.
+- Booked meetings get confirmed by email + you get a ✅ Slack ping.
 - "Wants website" leads wait in your queue — build the site, reply
-  `/send <id> <url>` in Telegram, it emails them and confirms back to you.
+  `/send <id> <url>` in Slack, it emails them and confirms back to you.
 - No-answers redial themselves for up to 6 tries, spaced a day apart, with one
   SMS nudge after the first miss.
 - Check `dashboard/index.html` whenever you want the full picture at a glance.
