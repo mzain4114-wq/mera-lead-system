@@ -37,8 +37,9 @@ app.get('/dashboard', requireKey, (req, res) => {
 
 const mailer = nodemailer.createTransport({
   host: process.env.HOSTINGER_SMTP_HOST,
-  port: Number(process.env.HOSTINGER_SMTP_PORT || 465),
-  secure: true,
+  port: Number(process.env.HOSTINGER_SMTP_PORT || 587),
+  secure: false,
+  requireTLS: true,
   auth: { user: process.env.HOSTINGER_EMAIL, pass: process.env.HOSTINGER_PASSWORD }
 });
 
