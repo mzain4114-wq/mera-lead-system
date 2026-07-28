@@ -1,56 +1,46 @@
-// leads-store.js
-// Single source of truth for reading/writing leads.json.
-// Swap this file's internals for a Supabase client later —
-// every other module only calls readLeads/writeLeads/upsertLead,
-// so nothing else needs to change.
+const { createClient } = require('@supabase/supabase-js');
 
-const fs = require('fs');
-const path = require('path');
-const LEADS_FILE = path.join(__dirname, 'leads.json');
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY
+);
 
-function readLeads() {
-  if (!fs.existsSync(LEADS_FILE)) return [];
-  const raw = fs.readFileSync(LEADS_FILE, 'utf8').trim();
-  return raw ? JSON.parse(raw) : [];
+async function readLeads() {
+  const { data, error } = await supabase.from('leads').select('*');
+  if (error) throw new Error(`Supabase readLeads failed: ${error.message}`);
+  return data || [];
 }
 
-function writeLeads(leads) {
-  fs.writeFileSync(LEADS_FILE, JSON.stringify(leads, null, 2));
+async function writeLeads(leads) {
+  const { error } = await supabase.from('leads').upsert(leads, { onConflict: 'id' });
+  if (error) throw new Error(`Supabase writeLeads failed: ${error.message}`);
 }
 
-// Maps our detailed status to the 5 buckets the dashboard understands.
 function toDashboardOutcome(status) {
   switch (status) {
     case 'booked': return 'booked';
     case 'website_sent': return 'sent';
     case 'wants_website_pending': return 'pending';
     case 'bad_contact': return 'followup';
-    default: return 'no'; // declined, no_answer, voicemail, callback_requested
+    default: return 'no';
   }
 }
 
-// Creates a new lead or updates an existing one (matched by phone number).
-function upsertLead(fields) {
-  const leads = readLeads();
-  const idx = leads.findIndex(l => l.phone === fields.phone);
+async function upsertLead(fields) {
   const now = new Date().toISOString();
+  const { data: existing } = await supabase.from('leads').select('*').eq('phone', fields.phone).maybeSingle();
 
-  if (idx === -1) {
-    const lead = {
-      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-      call_attempts: 1,
-      last_attempt_at: now,
-      time: now,
-      ...fields
-    };
-    leads.push(lead);
-    writeLeads(leads);
+  if (!existing) {
+    const lead = { id: Date.now(), call_attempts: 1, last_attempt_at: now, time: now, ...fields };
+    const { error } = await supabase.from('leads').insert(lead);
+    if (error) throw new Error(`Supabase insert failed: ${error.message}`);
     return lead;
   }
 
-  leads[idx] = { ...leads[idx], ...fields, last_attempt_at: now };
-  writeLeads(leads);
-  return leads[idx];
+  const updated = { ...existing, ...fields, last_attempt_at: now };
+  const { error } = await supabase.from('leads').update(updated).eq('id', existing.id);
+  if (error) throw new Error(`Supabase update failed: ${error.message}`);
+  return updated;
 }
 
-module.exports = { readLeads, writeLeads, upsertLead, toDashboardOutcome, LEADS_FILE };
+module.exports = { readLeads, writeLeads, upsertLead, toDashboardOutcome };

@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const express = require('express');
 const nodemailer = require('nodemailer');
 const twilio = require('twilio');
-const { readLeads, upsertLead, toDashboardOutcome } = require('./leads-store');
+const { readLeads, upsertLead, toDashboardOutcome, writeLeads } = require('./leads-store');
 const { getDueForRedial, redial } = require('./requeue-check');
 
 const path = require('path');
@@ -31,7 +31,7 @@ function requireKey(req, res, next) {
   next();
 }
 
-app.get('/dashboard', requireKey, (req, res) => {
+app.get('/dashboard', requireKey, async (req, res) => {
   res.sendFile(path.join(__dirname, 'dashboard', 'index.html'));
 });
 
@@ -173,7 +173,7 @@ app.post('/webhook/vapi', async (req, res) => {
   const name = call.customer?.name || phone;
 
   const status = resolveStatus(data);
-  const lead = upsertLead({
+  const lead = await upsertLead({
     phone,
     name,
     email: data.email || null,
@@ -216,7 +216,7 @@ app.post('/webhook/slack', async (req, res) => {
   const [idStr, url] = (req.body.text || '').trim().split(/\s+/);
 
   if (cmd === '/send' && idStr && url) {
-    const leads = readLeads();
+    const leads = await readLeads();
     const lead = leads.find(l => String(l.id) === idStr);
     if (!lead) {
       await sendSlack(`No lead found with id ${idStr}.`);
@@ -228,16 +228,16 @@ app.post('/webhook/slack', async (req, res) => {
         'Your website is ready',
         `Hi ${lead.name},\n\nYour website is ready — take a look here: ${url}\n\nLet us know if you'd like any changes or have any questions.\n\nTalk soon,\nAlpha Logics`
       );
-      const all = readLeads();
+      const all = await readLeads();
       const idx = all.findIndex(l => l.id === lead.id);
       all[idx].status = 'website_sent';
-      require('./leads-store').writeLeads(all);
+      await writeLeads(all);
       await sendSlack(`✅ Sent to *${lead.name}* (#${lead.id}).`);
     } catch (e) {
       await sendSlack(`⚠️ Failed to send to #${lead.id}: ${e.message}`);
     }
   } else if (cmd === '/pending') {
-    const pending = readLeads().filter(l => l.status === 'wants_website_pending');
+    const pending = (await readLeads()).filter(l => l.status === 'wants_website_pending');
     const list = pending.length
       ? pending.map(l => `#${l.id} — ${l.name}`).join('\n')
       : 'Nothing pending.';
@@ -247,15 +247,15 @@ app.post('/webhook/slack', async (req, res) => {
   res.sendStatus(200);
 });
 
-app.get('/api/leads', requireKey, (req, res) => {
-  const leads = [...readLeads()]
+app.get('/api/leads', requireKey, async (req, res) => {
+  const leads = [...await readLeads()]
     .sort((a, b) => new Date(b.time) - new Date(a.time))
     .map(l => ({ ...l, outcome: toDashboardOutcome(l.status) }));
   res.json({ leads });
 });
 
-app.get('/api/stats', requireKey, (req, res) => {
-  const leads = readLeads();
+app.get('/api/stats', requireKey, async (req, res) => {
+  const leads = await readLeads();
   const pulse = [...leads]
     .sort((a, b) => new Date(a.time) - new Date(b.time))
     .slice(-60)
@@ -263,16 +263,16 @@ app.get('/api/stats', requireKey, (req, res) => {
   res.json({ totalCalls: leads.length, pulse });
 });
 
-app.get('/leads/pending', requireKey, (req, res) => {
-  res.json(readLeads().filter(l => l.status === 'wants_website_pending'));
+app.get('/leads/pending', requireKey, async (req, res) => {
+  res.json((await readLeads()).filter(l => l.status === 'wants_website_pending'));
 });
-app.get('/leads/needs-follow-up', requireKey, (req, res) => {
-  res.json(readLeads().filter(l => l.status === 'bad_contact'));
+app.get('/leads/needs-follow-up', requireKey, async (req, res) => {
+  res.json((await readLeads()).filter(l => l.status === 'bad_contact'));
 });
 
 app.get('/cron/redial', async (req, res) => {
   if (req.query.key !== process.env.CRON_SECRET) return res.sendStatus(401);
-  const due = getDueForRedial();
+  const due = await getDueForRedial();
   const results = [];
   for (const lead of due) {
     try {

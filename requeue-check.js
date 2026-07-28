@@ -12,8 +12,8 @@ function hoursSince(iso) {
   return (Date.now() - new Date(iso).getTime()) / 36e5;
 }
 
-function getDueForRedial() {
-  const leads = readLeads();
+async function getDueForRedial() {
+  const leads = await readLeads();
   return leads.filter(l =>
     REDIAL_STATUSES.includes(l.status) &&
     (l.call_attempts || 1) < MAX_ATTEMPTS &&
@@ -36,12 +36,12 @@ async function redial(lead) {
   });
   if (!res.ok) throw new Error(`Vapi call failed for ${lead.phone}: ${res.status}`);
 
-  const leads = readLeads();
+  const leads = await readLeads();
   const idx = leads.findIndex(l => l.id === lead.id);
   if (idx !== -1) {
     leads[idx].call_attempts = (leads[idx].call_attempts || 1) + 1;
     leads[idx].last_attempt_at = new Date().toISOString();
-    writeLeads(leads);
+    await writeLeads(leads);
   }
 }
 
