@@ -158,7 +158,7 @@
       <div class="sub">Every completed call, newest first</div>
       <table>
         <thead>
-          <tr><th>Prospect</th><th>Outcome</th><th>Email</th><th>Time</th></tr>
+          <tr><th>Prospect</th><th>Phone</th><th>Outcome</th><th>Email</th><th>Time</th></tr>
         </thead>
         <tbody id="leadsBody"></tbody>
       </table>
@@ -248,7 +248,7 @@ function render(data){
       const tagCls = l.outcome==='pending' ? 'build' : 'retry';
       const tagLbl = l.outcome==='pending' ? 'build site' : 'bad contact';
       const why = l.outcome==='pending' ? 'Wants website emailed — /send '+l.id+' <url>' : 'Email unclear on call — call back';
-      row.innerHTML = `<div><div class="who">${l.name}</div><div class="why">${why}</div></div><span class="tag ${tagCls}">${tagLbl}</span>`;
+      row.innerHTML = `<div><div class="who">${l.name} <span class="mono" style="color:var(--muted);font-weight:400">${l.phone ? '· ' + l.phone : ''}</span></div><div class="why">${why}</div></div><span class="tag ${tagCls}">${tagLbl}</span>`;
       actionList.appendChild(row);
     });
   }
@@ -263,6 +263,7 @@ function render(data){
     const timeStr = t.toLocaleDateString(undefined,{month:'short',day:'numeric'})+' '+t.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'});
     tr.innerHTML = `
       <td class="name">${l.name}</td>
+      <td class="mono" style="color:var(--muted)">${l.phone || '—'}</td>
       <td><span class="status-dot ${meta.cls}"></span>${meta.label}</td>
       <td class="mono" style="color:var(--muted)">${l.email || '—'}</td>
       <td class="time">${timeStr}</td>`;
