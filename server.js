@@ -35,16 +35,24 @@ app.get('/dashboard', requireKey, (req, res) => {
   res.sendFile(path.join(__dirname, 'dashboard', 'index.html'));
 });
 
-const mailer = nodemailer.createTransport({
-  host: process.env.HOSTINGER_SMTP_HOST,
-  port: Number(process.env.HOSTINGER_SMTP_PORT || 587),
-  secure: false,
-  requireTLS: true,
-  auth: { user: process.env.HOSTINGER_EMAIL, pass: process.env.HOSTINGER_PASSWORD }
-});
-
 async function sendEmail(to, subject, text) {
-  return mailer.sendMail({ from: process.env.HOSTINGER_EMAIL, to, subject, text });
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      from: process.env.HOSTINGER_EMAIL,
+      to: [to],
+      subject,
+      text
+    })
+  });
+  if (!res.ok) {
+    throw new Error(`Resend send failed: ${res.status} ${await res.text()}`);
+  }
+  return res.json();
 }
 
 async function sendSlack(text) {
@@ -283,15 +291,10 @@ app.get('/diag/email', async (req, res) => {
   if (req.query.key !== process.env.CRON_SECRET) return res.sendStatus(401);
   const start = Date.now();
   try {
-    const info = await mailer.sendMail({
-      from: process.env.HOSTINGER_EMAIL,
-      to: process.env.HOSTINGER_EMAIL,
-      subject: 'Railway diagnostic',
-      text: 'Testing SMTP reachability from Railway.'
-    });
-    res.json({ ok: true, ms: Date.now() - start, response: info.response });
+    const info = await sendEmail(process.env.HOSTINGER_EMAIL, 'Railway diagnostic', 'Testing Resend API from Railway.');
+    res.json({ ok: true, ms: Date.now() - start, response: info });
   } catch (e) {
-    res.json({ ok: false, ms: Date.now() - start, error: e.message, code: e.code, stack: e.stack });
+    res.json({ ok: false, ms: Date.now() - start, error: e.message });
   }
 });
 
