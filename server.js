@@ -113,6 +113,64 @@ async function getZoomAccessToken() {
   return json.access_token;
 }
 
+
+// ---------- follow-up calling (re-engages a lead via a dedicated Vapi assistant) ----------
+function buildLastContext(lead) {
+  const parts = [];
+  if (lead.status === 'bad_contact') parts.push('they were interested but their email/contact info came through unclear on the call');
+  else if (lead.status === 'wants_website_pending') parts.push('they asked for a website to be built and sent to them');
+  else if (lead.status === 'callback_requested') parts.push('they asked to be called back at a better time');
+  else if (lead.status === 'declined') parts.push('they were hesitant, but not a firm no');
+  else parts.push('they did not pick up on the last attempt');
+  if (lead.objection) parts.push(`their stated reason/objection was: ${lead.objection}`);
+  if (lead.zoom_time) parts.push(`they had discussed a time of: ${lead.zoom_time}`);
+  return parts.join('; ');
+}
+
+async function triggerFollowUpCall(lead) {
+  const resp = await fetch('https://api.vapi.ai/call', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.VAPI_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      assistantId: process.env.VAPI_FOLLOWUP_ASSISTANT_ID,
+      phoneNumberId: process.env.VAPI_PHONE_NUMBER_ID,
+      customer: { number: lead.phone },
+      assistantOverrides: {
+        variableValues: {
+          name: lead.name || 'there',
+          business: lead.name || 'your business',
+          last_context: buildLastContext(lead),
+          attempt_number: String((lead.follow_up_attempts || 0) + 1)
+        }
+      }
+    })
+  });
+  if (!resp.ok) {
+    throw new Error(`Vapi follow-up call failed: ${resp.status} ${await resp.text()}`);
+  }
+  return resp.json();
+}
+
+app.get('/followup/trigger', async (req, res) => {
+  if (req.query.key !== process.env.CRON_SECRET) return res.sendStatus(401);
+  const leadId = req.query.leadId;
+  if (!leadId) return res.status(400).json({ error: 'leadId query param required' });
+
+  try {
+    const leads = await readLeads();
+    const lead = leads.find(l => String(l.id) === String(leadId));
+    if (!lead) return res.status(404).json({ error: `No lead found with id ${leadId}` });
+
+    const call = await triggerFollowUpCall(lead);
+    res.json({ ok: true, callId: call.id, calledContext: buildLastContext(lead) });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 async function createZoomMeeting(topic, zoomTimeRaw) {
   const token = await getZoomAccessToken();
   const parsed = zoomTimeRaw ? new Date(zoomTimeRaw) : null;
