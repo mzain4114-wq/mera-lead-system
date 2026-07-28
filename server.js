@@ -193,7 +193,7 @@ app.post('/webhook/vapi', async (req, res) => {
       }
     }
   } catch (e) {
-    console.error('Post-call action failed:', e.message);
+    console.error('Post-call action failed:', e.message, e.code, e.stack);
     await sendSlack(`⚠️ Action failed for lead #${lead.id} (${name}): ${e.message}`).catch(() => {});
   }
 
@@ -277,6 +277,22 @@ app.get('/cron/redial', async (req, res) => {
 });
 
 app.get('/health', (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
+
+app.get('/diag/email', async (req, res) => {
+  if (req.query.key !== process.env.CRON_SECRET) return res.sendStatus(401);
+  const start = Date.now();
+  try {
+    const info = await mailer.sendMail({
+      from: process.env.HOSTINGER_EMAIL,
+      to: process.env.HOSTINGER_EMAIL,
+      subject: 'Railway diagnostic',
+      text: 'Testing SMTP reachability from Railway.'
+    });
+    res.json({ ok: true, ms: Date.now() - start, response: info.response });
+  } catch (e) {
+    res.json({ ok: false, ms: Date.now() - start, error: e.message, code: e.code, stack: e.stack });
+  }
+});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Mera lead system running on port ${PORT}`));
