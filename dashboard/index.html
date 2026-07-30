@@ -1,647 +1,561 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Mera Lead System</title>
-<style>
-:root {
-  --bg: #0f1115;
-  --surface: #181b21;
-  --surface-2: #1e222a;
-  --border: #2a2e38;
-  --text: #e8eaed;
-  --text-secondary: #9aa0a6;
-  --accent: #4f86f7;
-  --accent-hover: #3b75e7;
-  --success: #34a853;
-  --warning: #fbbc04;
-  --danger: #ea4335;
-  --info: #aa00ff;
-  --radius: 10px;
-  --shadow: 0 4px 24px rgba(0,0,0,0.35);
-}
-* { box-sizing: border-box; }
-body {
-  margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  background: var(--bg); color: var(--text); height: 100vh; overflow: hidden;
-}
-.app { display: flex; height: 100vh; }
-.sidebar {
-  width: 220px; background: var(--surface); border-right: 1px solid var(--border);
-  display: flex; flex-direction: column; padding: 24px 16px;
-}
-.logo { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 32px; color: var(--text); }
-.nav-item {
-  background: transparent; border: none; color: var(--text-secondary); padding: 12px 14px;
-  border-radius: var(--radius); text-align: left; font-size: 14px; cursor: pointer;
-  display: flex; align-items: center; gap: 10px; transition: all 0.15s; margin-bottom: 4px;
-  width: 100%;
-}
-.nav-item:hover { background: var(--surface-2); color: var(--text); }
-.nav-item.active { background: var(--accent); color: #fff; font-weight: 600; }
-.badge {
-  margin-left: auto; font-size: 11px; font-weight: 700; background: var(--danger);
-  color: #fff; padding: 2px 7px; border-radius: 999px; min-width: 20px; text-align: center;
-}
-.main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-.topbar {
-  height: 64px; background: var(--surface); border-bottom: 1px solid var(--border);
-  display: flex; align-items: center; justify-content: space-between; padding: 0 28px;
-}
-.topbar h1 { font-size: 18px; margin: 0; font-weight: 600; }
-.live-indicator { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary); }
-.live-dot { width: 8px; height: 8px; background: var(--success); border-radius: 50%; animation: pulse 2s infinite; }
-@keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
-.content { flex: 1; overflow-y: auto; padding: 28px; }
-.tab { display: none; }
-.tab.active { display: block; animation: fadeIn 0.25s ease; }
-@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-.stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 16px; margin-bottom: 28px; }
-.stat-card {
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 20px; box-shadow: var(--shadow);
-}
-.stat-label { font-size: 12px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
-.stat-value { font-size: 28px; font-weight: 700; }
-.stat-card.booked .stat-value { color: var(--success); }
-.stat-card.sent .stat-value { color: var(--accent); }
-.stat-card.pending .stat-value { color: var(--warning); }
-.stat-card.followup .stat-value { color: var(--danger); }
-.section { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 24px; overflow: hidden; }
-.section-header { padding: 18px 22px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 15px; display: flex; align-items: center; justify-content: space-between; }
-.section-body { padding: 0; }
-.pulse-wrap { display: flex; align-items: flex-end; gap: 3px; height: 100px; padding: 20px 22px; }
-.pulse-bar { flex: 1; border-radius: 3px 3px 0 0; min-height: 4px; transition: height 0.4s ease; }
-.pulse-bar.booked { background: var(--success); }
-.pulse-bar.sent { background: var(--accent); }
-.pulse-bar.pending { background: var(--warning); }
-.pulse-bar.followup { background: var(--danger); }
-.pulse-bar.declined { background: var(--text-secondary); }
-.pulse-bar.no { background: var(--border); }
-.toolbar { padding: 14px 22px; border-bottom: 1px solid var(--border); display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-.search { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 8px 14px; border-radius: 8px; font-size: 14px; width: 260px; outline: none; }
-.search:focus { border-color: var(--accent); }
-.btn {
-  background: var(--accent); color: #fff; border: none; padding: 8px 16px; border-radius: 8px;
-  font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.15s;
-}
-.btn:hover { background: var(--accent-hover); }
-.btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn-secondary { background: var(--surface-2); border: 1px solid var(--border); color: var(--text); }
-.btn-secondary:hover { background: var(--border); }
-.btn-success { background: var(--success); }
-.btn-danger { background: var(--danger); }
-.btn-sm { padding: 6px 12px; font-size: 12px; }
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-th, td { padding: 12px 18px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
-th { color: var(--text-secondary); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; position: sticky; top: 0; background: var(--surface); z-index: 1; }
-tr:hover td { background: var(--surface-2); }
-td { color: var(--text-secondary); }
-td strong { color: var(--text); font-weight: 500; }
-.tag { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; }
-.tag-booked { background: rgba(52,168,83,0.15); color: var(--success); }
-.tag-sent { background: rgba(79,134,247,0.15); color: var(--accent); }
-.tag-pending { background: rgba(251,188,4,0.15); color: var(--warning); }
-.tag-followup { background: rgba(234,67,53,0.15); color: var(--danger); }
-.tag-declined { background: rgba(154,160,166,0.15); color: var(--text-secondary); }
-.tag-no { background: rgba(154,160,166,0.1); color: var(--text-secondary); }
-.tag-dnc { background: rgba(234,67,53,0.25); color: #ff6b6b; }
-.tag-exhausted { background: rgba(170,0,255,0.15); color: var(--info); }
-.tag-connected { background: rgba(52,168,83,0.15); color: var(--success); }
-.tag-busy { background: rgba(251,188,4,0.15); color: var(--warning); }
-.empty { padding: 40px; text-align: center; color: var(--text-secondary); font-size: 14px; }
-.context-box { max-width: 320px; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: var(--text-secondary); }
-.toast {
-  position: fixed; bottom: 24px; right: 24px; background: var(--surface-2); color: var(--text);
-  padding: 14px 20px; border-radius: var(--radius); border: 1px solid var(--border); box-shadow: var(--shadow);
-  font-size: 13px; z-index: 1000; transform: translateY(100px); opacity: 0; transition: all 0.3s ease;
-}
-.toast.show { transform: translateY(0); opacity: 1; }
-.toast.success { border-color: var(--success); }
-.toast.error { border-color: var(--danger); }
-.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 999; }
-.modal-overlay.open { display: flex; }
-.modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); width: 560px; max-width: 92%; padding: 24px; max-height: 86vh; overflow-y: auto; }
-.modal h3 { margin: 0 0 4px; font-size: 17px; }
-.modal .msub { font-size: 12px; color: var(--text-secondary); margin-bottom: 16px; }
-.modal h4 { margin: 18px 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-secondary); }
-.mrow { display: flex; justify-content: space-between; gap: 14px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
-.mrow:last-child { border-bottom: none; }
-.mrow .k { color: var(--text-secondary); white-space: nowrap; min-width: 120px; }
-.mrow .v { text-align: right; word-break: break-word; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--text); }
-.modal-close { float: right; background: none; border: none; color: var(--text-secondary); font-size: 22px; line-height: 1; padding: 0; cursor: pointer; }
-.modal-close:hover { color: var(--text); }
-.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
-.history-list { margin: 0; padding: 0; list-style: none; }
-.history-list li { padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
-.history-list li:last-child { border-bottom: none; }
-.history-outcome { font-weight: 600; color: var(--text); }
-.history-meta { font-size: 11px; color: var(--text-secondary); margin-top: 3px; }
-.history-summary { font-size: 12px; color: var(--text-secondary); margin-top: 4px; font-style: italic; }
-@media (max-width: 900px) {
-  .sidebar { width: 64px; padding: 16px 8px; }
-  .logo { display: none; }
-  .nav-item { justify-content: center; padding: 10px; font-size: 11px; }
-  .nav-item span { display: none; }
-  .stats-grid { grid-template-columns: repeat(2, 1fr); }
-}
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mera Lead System</title>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --surface: #181b21;
+      --surface-2: #1e222a;
+      --border: #2a2e38;
+      --text: #e8eaed;
+      --text-secondary: #9aa0a6;
+      --accent: #4f86f7;
+      --accent-hover: #3b75e7;
+      --success: #34a853;
+      --warning: #fbbc04;
+      --danger: #ea4335;
+      --info: #aa00ff;
+      --radius: 10px;
+      --shadow: 0 4px 24px rgba(0,0,0,0.35);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg); color: var(--text); height: 100vh; overflow: hidden;
+    }
+    .app { display: flex; height: 100vh; }
+    .sidebar {
+      width: 220px; background: var(--surface); border-right: 1px solid var(--border);
+      display: flex; flex-direction: column; padding: 24px 16px;
+    }
+    .logo { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 32px; color: var(--text); }
+    .nav-item {
+      background: transparent; border: none; color: var(--text-secondary); padding: 12px 14px;
+      border-radius: var(--radius); text-align: left; font-size: 14px; cursor: pointer;
+      display: flex; align-items: center; gap: 10px; transition: all 0.15s; margin-bottom: 4px;
+      width: 100%;
+    }
+    .nav-item:hover { background: var(--surface-2); color: var(--text); }
+    .nav-item.active { background: var(--accent); color: #fff; font-weight: 600; }
+    .badge {
+      margin-left: auto; font-size: 11px; font-weight: 700; background: var(--danger);
+      color: #fff; padding: 2px 7px; border-radius: 999px; min-width: 20px; text-align: center;
+    }
+    .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    .topbar {
+      height: 64px; background: var(--surface); border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between; padding: 0 28px;
+    }
+    .topbar h1 { font-size: 18px; margin: 0; font-weight: 600; }
+    .live-indicator { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary); }
+    .live-dot { width: 8px; height: 8px; background: var(--success); border-radius: 50%; animation: pulse 2s infinite; }
+    @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
+    .content { flex: 1; overflow-y: auto; padding: 28px; }
+    .tab { display: none; }
+    .tab.active { display: block; animation: fadeIn 0.25s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 16px; margin-bottom: 28px; }
+    .stat-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 20px; box-shadow: var(--shadow);
+    }
+    .stat-label { font-size: 12px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+    .stat-value { font-size: 28px; font-weight: 700; }
+    .stat-card.booked .stat-value { color: var(--success); }
+    .stat-card.sent .stat-value { color: var(--accent); }
+    .stat-card.pending .stat-value { color: var(--warning); }
+    .stat-card.followup .stat-value { color: var(--danger); }
+
+    .section { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 24px; overflow: hidden; }
+    .section-header { padding: 18px 22px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 15px; display: flex; align-items: center; justify-content: space-between; }
+    .section-body { padding: 0; }
+
+    .pulse-wrap { display: flex; align-items: flex-end; gap: 3px; height: 100px; padding: 20px 22px; }
+    .pulse-bar { flex: 1; border-radius: 3px 3px 0 0; min-height: 4px; transition: height 0.4s ease; }
+    .pulse-bar.booked { background: var(--success); }
+    .pulse-bar.sent { background: var(--accent); }
+    .pulse-bar.pending { background: var(--warning); }
+    .pulse-bar.followup { background: var(--danger); }
+    .pulse-bar.declined { background: var(--text-secondary); }
+    .pulse-bar.no { background: var(--border); }
+
+    .toolbar { padding: 14px 22px; border-bottom: 1px solid var(--border); display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .search { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 8px 14px; border-radius: 8px; font-size: 14px; width: 260px; outline: none; }
+    .search:focus { border-color: var(--accent); }
+    .btn {
+      background: var(--accent); color: #fff; border: none; padding: 8px 16px; border-radius: 8px;
+      font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.15s;
+    }
+    .btn:hover { background: var(--accent-hover); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-secondary { background: var(--surface-2); border: 1px solid var(--border); color: var(--text); }
+    .btn-secondary:hover { background: var(--border); }
+    .btn-success { background: var(--success); }
+    .btn-danger { background: var(--danger); }
+    .btn-sm { padding: 6px 12px; font-size: 12px; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 12px 18px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    th { color: var(--text-secondary); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; position: sticky; top: 0; background: var(--surface); z-index: 1; }
+    tr:hover td { background: var(--surface-2); }
+    td { color: var(--text-secondary); }
+    td strong { color: var(--text); font-weight: 500; }
+
+    .tag { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; }
+    .tag-booked { background: rgba(52,168,83,0.15); color: var(--success); }
+    .tag-sent { background: rgba(79,134,247,0.15); color: var(--accent); }
+    .tag-pending { background: rgba(251,188,4,0.15); color: var(--warning); }
+    .tag-followup { background: rgba(234,67,53,0.15); color: var(--danger); }
+    .tag-declined { background: rgba(154,160,166,0.15); color: var(--text-secondary); }
+    .tag-no { background: rgba(154,160,166,0.1); color: var(--text-secondary); }
+    .tag-dnc { background: rgba(234,67,53,0.25); color: #ff6b6b; }
+    .tag-exhausted { background: rgba(170,0,255,0.15); color: var(--info); }
+    .tag-warning { background: rgba(251,188,4,0.15); color: var(--warning); }
+
+    .empty { padding: 40px; text-align: center; color: var(--text-secondary); font-size: 14px; }
+    .context-box { max-width: 320px; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: var(--text-secondary); }
+    .toast {
+      position: fixed; bottom: 24px; right: 24px; background: var(--surface-2); color: var(--text);
+      padding: 14px 20px; border-radius: var(--radius); border: 1px solid var(--border); box-shadow: var(--shadow);
+      font-size: 13px; z-index: 1000; transform: translateY(100px); opacity: 0; transition: all 0.3s ease;
+    }
+    .toast.show { transform: translateY(0); opacity: 1; }
+    .toast.success { border-color: var(--success); }
+    .toast.error { border-color: var(--danger); }
+
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 999; }
+    .modal-overlay.open { display: flex; }
+    .modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); width: 520px; max-width: 90%; padding: 24px; max-height: 80vh; overflow-y: auto; }
+    .modal h3 { margin: 0 0 12px; font-size: 16px; }
+    .modal p { color: var(--text-secondary); font-size: 13px; line-height: 1.6; margin: 0 0 20px; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+    .history-list { margin: 0; padding: 0; list-style: none; }
+    .history-list li { padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; display: flex; justify-content: space-between; }
+    .history-list li:last-child { border-bottom: none; }
+    .history-outcome { font-weight: 600; color: var(--text); }
+
+    @media (max-width: 900px) {
+      .sidebar { width: 64px; padding: 16px 8px; }
+      .logo { display: none; }
+      .nav-item { justify-content: center; padding: 10px; font-size: 11px; }
+      .nav-item span { display: none; }
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
 </head>
 <body>
-<div class="app">
-<aside class="sidebar">
-  <div class="logo">Mera</div>
-  <nav>
-    <button class="nav-item active" data-tab="overview" onclick="switchTab('overview')">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-      <span>Overview</span>
-    </button>
-    <button class="nav-item" data-tab="leads" onclick="switchTab('leads')">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-      <span>Leads</span>
-    </button>
-    <button class="nav-item" data-tab="followup" onclick="switchTab('followup')">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-      <span>Follow Up</span>
-      <span class="badge" id="followup-badge" style="display:none">0</span>
-    </button>
-    <button class="nav-item" data-tab="pending" onclick="switchTab('pending')">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-      <span>Pending</span>
-      <span class="badge" id="pending-badge" style="display:none">0</span>
-    </button>
-  </nav>
-</aside>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="logo">Mera</div>
+      <nav>
+        <button class="nav-item active" data-tab="overview" onclick="switchTab('overview')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          <span>Overview</span>
+        </button>
+        <button class="nav-item" data-tab="leads" onclick="switchTab('leads')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span>Leads</span>
+        </button>
+        <button class="nav-item" data-tab="followup" onclick="switchTab('followup')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+          <span>Follow Up</span>
+          <span class="badge" id="followup-badge" style="display:none">0</span>
+        </button>
+        <button class="nav-item" data-tab="pending" onclick="switchTab('pending')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          <span>Pending</span>
+          <span class="badge" id="pending-badge" style="display:none">0</span>
+        </button>
+      </nav>
+    </aside>
 
-<main class="main">
-  <div class="topbar">
-    <h1 id="page-title">Overview</h1>
-    <div class="live-indicator">
-      <div class="live-dot"></div>
-      <span id="last-updated">Loading...</span>
+    <main class="main">
+      <div class="topbar">
+        <h1 id="page-title">Overview</h1>
+        <div class="live-indicator">
+          <div class="live-dot"></div>
+          <span id="last-updated">Loading…</span>
+        </div>
+      </div>
+
+      <div class="content">
+        <!-- OVERVIEW -->
+        <div id="overview-tab" class="tab active">
+          <div class="stats-grid" id="stats-grid"></div>
+          <div class="section">
+            <div class="section-header">Call Pulse (last 60 calls)</div>
+            <div class="pulse-wrap" id="pulse-chart"></div>
+          </div>
+          <div class="section">
+            <div class="section-header">Recent Activity</div>
+            <div class="section-body" id="recent-activity"></div>
+          </div>
+        </div>
+
+        <!-- LEADS -->
+        <div id="leads-tab" class="tab">
+          <div class="section">
+            <div class="toolbar">
+              <input type="text" class="search" id="leads-search" placeholder="Search name, phone, email…" oninput="renderLeads()">
+              <button class="btn btn-secondary btn-sm" onclick="exportLeads()">Export CSV</button>
+            </div>
+            <div class="section-body">
+              <table>
+                <thead><tr>
+                  <th>Name</th><th>Phone</th><th>Status</th><th>Email</th><th>Last Attempt</th><th>Outcome</th><th>Contact</th><th>Attempts</th><th></th>
+                </tr></thead>
+                <tbody id="leads-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- FOLLOW UP -->
+        <div id="followup-tab" class="tab">
+          <div class="section">
+            <div class="toolbar">
+              <input type="text" class="search" id="followup-search" placeholder="Search follow-ups…" oninput="renderFollowUp()">
+              <button class="btn btn-secondary btn-sm" onclick="showExhaustedFilter()" id="exhausted-filter-btn">Show Exhausted</button>
+            </div>
+            <div class="section-body">
+              <table>
+                <thead><tr>
+                  <th>Name</th><th>Status</th><th>Contact Outcome</th><th>Next Try</th><th>Action</th><th></th>
+                </tr></thead>
+                <tbody id="followup-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- PENDING -->
+        <div id="pending-tab" class="tab">
+          <div class="section">
+            <div class="toolbar">
+              <span style="color:var(--text-secondary);font-size:13px;">Leads waiting for their website link</span>
+            </div>
+            <div class="section-body">
+              <table>
+                <thead><tr>
+                  <th>Name</th><th>Phone</th><th>Email</th><th>Requested</th><th>Slack Command</th>
+                </tr></thead>
+                <tbody id="pending-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <div class="modal-overlay" id="modal">
+    <div class="modal">
+      <h3 id="modal-title">Title</h3>
+      <div id="modal-body"></div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary btn-sm" onclick="closeModal()">Close</button>
+        <button class="btn btn-sm" id="modal-primary" onclick="closeModal()">OK</button>
+      </div>
     </div>
   </div>
-  <div class="content">
 
-    <!-- OVERVIEW -->
-    <div id="overview-tab" class="tab active">
-      <div class="stats-grid" id="stats-grid"></div>
-      <div class="section">
-        <div class="section-header">Call Pulse (last 60 calls)</div>
-        <div class="pulse-wrap" id="pulse-chart"></div>
-      </div>
-      <div class="section">
-        <div class="section-header">Recent Activity</div>
-        <div class="section-body" id="recent-activity"></div>
-      </div>
-    </div>
-
-    <!-- LEADS -->
-    <div id="leads-tab" class="tab">
-      <div class="section">
-        <div class="toolbar">
-          <input type="text" class="search" id="leads-search" placeholder="Search name, phone, email..." oninput="renderLeads()">
-          <button class="btn btn-secondary btn-sm" onclick="exportLeads()">Export CSV</button>
-        </div>
-        <div class="section-body">
-          <table>
-            <thead><tr>
-              <th>Name</th><th>Phone</th><th>Status</th><th>Email</th><th>Last Attempt</th><th>Outcome</th><th>Contact</th><th>Attempts</th>
-            </tr></thead>
-            <tbody id="leads-body"></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- FOLLOW UP -->
-    <div id="followup-tab" class="tab">
-      <div class="section">
-        <div class="toolbar">
-          <input type="text" class="search" id="followup-search" placeholder="Search follow-ups..." oninput="renderFollowUp()">
-          <button class="btn btn-secondary btn-sm" onclick="showExhaustedFilter()" id="exhausted-filter-btn">Show Exhausted</button>
-        </div>
-        <div class="section-body">
-          <table>
-            <thead><tr>
-              <th>Name</th><th>Status</th><th>Contact Outcome</th><th>Next Try</th><th>Action</th><th></th>
-            </tr></thead>
-            <tbody id="followup-body"></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- PENDING -->
-    <div id="pending-tab" class="tab">
-      <div class="section">
-        <div class="toolbar">
-          <span style="color:var(--text-secondary);font-size:13px;">Leads waiting for their website link</span>
-        </div>
-        <div class="section-body">
-          <table>
-            <thead><tr>
-              <th>Name</th><th>Phone</th><th>Email</th><th>Requested</th><th>Slack Command</th>
-            </tr></thead>
-            <tbody id="pending-body"></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-  </div>
-</main>
-</div>
-
-<div class="toast" id="toast"></div>
-
-<div class="modal-overlay" id="modal">
-  <div class="modal">
-    <button class="modal-close" onclick="closeModal()">&times;</button>
-    <h3 id="modal-title">Title</h3>
-    <div class="msub" id="modal-sub">—</div>
-    <div id="modal-body"></div>
-    <div class="modal-actions" id="modal-actions"></div>
-  </div>
-</div>
-
-<script>
-const urlParams = new URLSearchParams(window.location.search);
-const KEY = urlParams.get('key');
-if (!KEY) {
-  document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#9aa0a6;">Missing ?key= parameter. Add your dashboard key to the URL.</div>';
-  throw new Error('No key');
-}
-
-let leadsData = [];
-let followUpData = [];
-let statsData = {};
-let showExhausted = false;
-
-const API = {
-  stats: () => fetch(`/api/stats?key=${KEY}`).then(r => r.ok ? r.json() : Promise.reject()),
-  leads: () => fetch(`/api/leads?key=${KEY}`).then(r => r.ok ? r.json() : Promise.reject()),
-  followup: () => fetch(`/api/followup?key=${KEY}`).then(r => r.ok ? r.json() : Promise.reject()),
-  trigger: (leadId) => fetch(`/api/followup/trigger?key=${KEY}`, {
-    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({leadId})
-  }).then(r => r.ok ? r.json() : Promise.reject()),
-  dnc: (leadId) => fetch(`/api/dnc?key=${KEY}`, {
-    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({leadId})
-  }).then(r => r.ok ? r.json() : Promise.reject())
-};
-
-function timeAgo(iso) {
-  if (!iso) return '—';
-  const diff = (Date.now() - new Date(iso).getTime()) / 1000;
-  if (diff < 60) return 'just now';
-  if (diff < 3600) return Math.floor(diff/60) + 'm ago';
-  if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
-  return Math.floor(diff/86400) + 'd ago';
-}
-
-function formatNext(iso) {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  const now = new Date();
-  const diff = d - now;
-  if (diff < 0) return 'Due now';
-  if (diff < 3600000) return 'in ' + Math.ceil(diff/60000) + 'm';
-  if (diff < 86400000) return 'in ' + Math.ceil(diff/3600000) + 'h';
-  return d.toLocaleDateString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
-}
-
-function statusTag(status) {
-  const map = {
-    booked: 'tag-booked', sent: 'tag-sent', pending: 'tag-pending',
-    followup: 'tag-followup', declined: 'tag-declined', no: 'tag-no'
-  };
-  const label = status || 'no';
-  return `<span class="tag ${map[label] || 'tag-no'}">${label.replace(/_/g,' ')}</span>`;
-}
-
-function outcomeTag(outcome, exhausted, dnc) {
-  if (dnc) return '<span class="tag tag-dnc">DNC</span>';
-  if (exhausted) return '<span class="tag tag-exhausted">Exhausted</span>';
-  const map = {
-    no_answer: 'tag-no', voicemail: 'tag-followup', busy: 'tag-busy',
-    failed: 'tag-declined', connected: 'tag-connected', declined_permanent: 'tag-dnc',
-    declined: 'tag-declined', callback_requested: 'tag-pending', bad_contact: 'tag-followup'
-  };
-  const label = outcome || 'unknown';
-  return `<span class="tag ${map[label] || 'tag-no'}">${label.replace(/_/g,' ')}</span>`;
-}
-
-function showToast(msg, type='success') {
-  const t = document.getElementById('toast');
-  t.textContent = msg; t.className = 'toast show ' + type;
-  setTimeout(() => t.classList.remove('show'), 3000);
-}
-
-function switchTab(tab) {
-  document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-  document.getElementById(tab + '-tab').classList.add('active');
-  document.querySelector(`.nav-item[data-tab="${tab}"]`).classList.add('active');
-  const titles = {overview:'Overview', leads:'All Leads', followup:'Follow Up Queue', pending:'Pending Websites'};
-  document.getElementById('page-title').textContent = titles[tab];
-  if (tab === 'followup') renderFollowUp();
-  if (tab === 'pending') renderPending();
-}
-
-async function load() {
-  try {
-    const [stats, leads, followup] = await Promise.all([API.stats(), API.leads(), API.followup()]);
-    statsData = stats;
-    leadsData = leads.leads || [];
-    followUpData = followup.leads || [];
-    renderStats(); renderPulse(); renderRecent(); renderLeads(); renderFollowUp(); renderPending(); updateBadges();
-    document.getElementById('last-updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
-  } catch (e) {
-    showToast('Failed to load data: ' + e.message, 'error');
-  }
-}
-
-function renderStats() {
-  const counts = { booked:0, sent:0, pending:0, followup:0, declined:0, no:0 };
-  leadsData.forEach(l => { counts[l.outcome || 'no'] = (counts[l.outcome || 'no'] || 0) + 1; });
-  const grid = document.getElementById('stats-grid');
-  const cards = [
-    {label:'Total Calls', value: statsData.totalCalls || leadsData.length, cls:''},
-    {label:'Booked', value: counts.booked, cls:'booked'},
-    {label:'Website Sent', value: counts.sent, cls:'sent'},
-    {label:'Pending Site', value: counts.pending, cls:'pending'},
-    {label:'Follow-up Needed', value: counts.followup, cls:'followup'},
-    {label:'Declined / No', value: counts.declined + counts.no, cls:''},
-  ];
-  grid.innerHTML = cards.map(c => `<div class="stat-card ${c.cls}"><div class="stat-label">${c.label}</div><div class="stat-value">${c.value}</div></div>`).join('');
-}
-
-function renderPulse() {
-  const pulse = statsData.pulse || [];
-  const wrap = document.getElementById('pulse-chart');
-  if (!pulse.length) { wrap.innerHTML = '<div class="empty">No data yet</div>'; return; }
-  wrap.innerHTML = pulse.map(p => `<div class="pulse-bar ${p}" style="height:${Math.max(8, Math.random()*80+10)}px" title="${p}"></div>`).join('');
-}
-
-function renderRecent() {
-  const recent = [...leadsData].slice(0, 8);
-  const box = document.getElementById('recent-activity');
-  if (!recent.length) { box.innerHTML = '<div class="empty">No calls yet</div>'; return; }
-  box.innerHTML = `<table><tbody>` + recent.map(l => `
-    <tr><td><strong>${l.name || 'Unknown'}</strong></td>
-    <td>${statusTag(l.outcome)}</td>
-    <td style="text-align:right">${timeAgo(l.last_attempt_at || l.time)}</td></tr>
-  `).join('') + `</tbody></table>`;
-}
-
-function renderLeads() {
-  const q = document.getElementById('leads-search').value.toLowerCase();
-  const filtered = leadsData.filter(l =>
-    !q || (l.name||'').toLowerCase().includes(q) || (l.phone||'').includes(q) || (l.email||'').toLowerCase().includes(q)
-  );
-  const tbody = document.getElementById('leads-body');
-  if (!filtered.length) { tbody.innerHTML = '<tr><td colspan="8" class="empty">No leads found</td></tr>'; return; }
-  tbody.innerHTML = filtered.map(l => `
-    <tr onclick="showLeadDetailById(${l.id})" style="cursor:pointer">
-      <td><strong>${l.name || '—'}</strong></td>
-      <td>${l.phone || '—'}</td>
-      <td>${statusTag(l.outcome)}</td>
-      <td>${l.email || '—'}</td>
-      <td>${timeAgo(l.last_attempt_at || l.time)}</td>
-      <td>${l.status || '—'}</td>
-      <td>${outcomeTag(l.contact_outcome, false, l.do_not_call)}</td>
-      <td>${l.call_attempts || 1}</td>
-    </tr>
-  `).join('');
-}
-
-function renderFollowUp() {
-  const q = document.getElementById('followup-search').value.toLowerCase();
-  let filtered = followUpData.filter(l =>
-    !q || (l.name||'').toLowerCase().includes(q) || (l.status||'').toLowerCase().includes(q)
-  );
-  if (!showExhausted) {
-    filtered = filtered.filter(l => !l.exhausted && !l.do_not_call);
-  }
-  const tbody = document.getElementById('followup-body');
-  if (!filtered.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">No follow-ups needed</td></tr>'; return; }
-  tbody.innerHTML = filtered.map(l => {
-    const act = l.action || {};
-    let btn = '';
-    if (l.do_not_call) {
-      btn = `<span class="tag tag-dnc">DNC</span>`;
-    } else if (l.exhausted) {
-      btn = `<span class="tag tag-exhausted">Exhausted</span> <button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); markDnc(${l.id})">Mark DNC</button>`;
-    } else if (act.kind === 'call') {
-      btn = `<button class="btn btn-sm" onclick="event.stopPropagation(); triggerCall(${l.id}, '${(l.name||'').replace(/'/g,"\\'")}')">Call Now</button>
-      <button class="btn btn-sm btn-danger" style="margin-left:6px" onclick="event.stopPropagation(); markDnc(${l.id})">DNC</button>`;
-    } else if (act.kind === 'send_link') {
-      btn = `<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); showSendHint(${l.id})">Build & Send Site</button>`;
-    } else {
-      btn = `<span style="color:var(--text-secondary)">—</span>`;
+  <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const KEY = urlParams.get('key');
+    if (!KEY) {
+      document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#9aa0a6;">Missing ?key= parameter. Add your dashboard key to the URL.</div>';
+      throw new Error('No key');
     }
-    return `
-      <tr onclick="showLeadDetailById(${l.id})" style="cursor:pointer">
-        <td><strong>${l.name || '—'}</strong><br><span style="font-size:11px;color:var(--text-secondary)">${l.phone || ''}</span></td>
-        <td>${statusTag(l.status)}</td>
-        <td>${outcomeTag(l.contact_outcome, l.exhausted, l.do_not_call)}</td>
-        <td>${formatNext(l.next_attempt_at)}</td>
-        <td><div class="context-box" title="${(act.detail||'').replace(/"/g,'&quot;')}">${act.label || '—'}</div></td>
-        <td style="text-align:right;white-space:nowrap">${btn}</td>
-      </tr>`;
-  }).join('');
-}
 
-function renderPending() {
-  const pending = leadsData.filter(l => l.status === 'wants_website_pending');
-  const tbody = document.getElementById('pending-body');
-  if (!pending.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty">No pending websites</td></tr>'; return; }
-  tbody.innerHTML = pending.map(l => `
-    <tr>
-      <td><strong>${l.name || '—'}</strong></td>
-      <td>${l.phone || '—'}</td>
-      <td>${l.email || '—'}</td>
-      <td>${timeAgo(l.last_attempt_at || l.time)}</td>
-      <td><code style="background:var(--bg);padding:4px 8px;border-radius:6px;font-size:12px;">/send ${l.id} https://...</code></td>
-    </tr>
-  `).join('');
-}
+    let leadsData = [];
+    let followUpData = [];
+    let statsData = {};
+    let showExhausted = false;
 
-function updateBadges() {
-  const f = followUpData.filter(l => !l.exhausted && !l.do_not_call).length;
-  const p = leadsData.filter(l => l.status === 'wants_website_pending').length;
-  const fb = document.getElementById('followup-badge');
-  const pb = document.getElementById('pending-badge');
-  fb.style.display = f ? 'inline-block' : 'none'; fb.textContent = f;
-  pb.style.display = p ? 'inline-block' : 'none'; pb.textContent = p;
-}
-
-function showExhaustedFilter() {
-  showExhausted = !showExhausted;
-  const btn = document.getElementById('exhausted-filter-btn');
-  btn.textContent = showExhausted ? 'Hide Exhausted' : 'Show Exhausted';
-  btn.classList.toggle('btn-secondary');
-  renderFollowUp();
-}
-
-async function triggerCall(id, name) {
-  const btn = event.target;
-  btn.disabled = true; btn.textContent = 'Calling...';
-  try {
-    const res = await API.trigger(id);
-    showToast(`Follow-up call triggered for ${name}`);
-    btn.textContent = 'Triggered';
-  } catch (e) {
-    showToast('Trigger failed: ' + e.message, 'error');
-    btn.disabled = false; btn.textContent = 'Call Now';
-  }
-}
-
-async function markDnc(id) {
-  if (!confirm('Permanently mark this lead as Do-Not-Call?')) return;
-  try {
-    await API.dnc(id);
-    showToast('Marked Do-Not-Call');
-    await load();
-  } catch (e) {
-    showToast('DNC failed: ' + e.message, 'error');
-  }
-}
-
-function showSendHint(id) {
-  document.getElementById('modal-title').textContent = 'Send Website Link';
-  document.getElementById('modal-sub').textContent = '';
-  document.getElementById('modal-body').innerHTML = `In Slack, type:<br><code style="background:var(--bg);padding:6px 10px;border-radius:6px;display:inline-block;margin-top:8px;">/send ${id} https://your-link.com</code>`;
-  document.getElementById('modal-actions').innerHTML = `<button class="btn btn-secondary btn-sm" onclick="closeModal()">Close</button>`;
-  document.getElementById('modal').classList.add('open');
-}
-
-function showLeadDetailById(id) {
-  const lead = followUpData.find(l => l.id === id) || leadsData.find(l => l.id === id);
-  if (!lead) return;
-  showLeadDetail(lead);
-}
-
-function showLeadDetail(lead) {
-  document.getElementById('modal-title').textContent = lead.name || 'Lead #' + lead.id;
-  const meta = (lead.contact_outcome || lead.status || 'unknown').replace(/_/g, ' ');
-  document.getElementById('modal-sub').textContent = `ID #${lead.id}  ·  ${meta}`;
-
-  const rows = [
-    ['Phone', lead.phone || '—'],
-    ['Email', lead.email || '—'],
-    ['Status', (lead.status || '—').replace(/_/g, ' ')],
-    ['Contact Outcome', (lead.contact_outcome || '—').replace(/_/g, ' ')],
-    ['Vapi Ended Reason', lead.ended_reason || '—'],
-    ['Objection', lead.objection || '—'],
-    ['Zoom Time', lead.zoom_time || '—'],
-    ['Call Attempts', lead.call_attempts || 1],
-    ['Follow-up Calls', lead.follow_up_attempts || 0],
-    ['Next Retry', formatNext(lead.next_attempt_at)],
-    ['Last Activity', timeAgo(lead.last_attempt_at || lead.time)],
-    ['First Seen', timeAgo(lead.time)],
-  ];
-
-  let html = rows.map(([k,v]) =>
-    `<div class="mrow"><span class="k">${k}</span><span class="v">${v}</span></div>`
-  ).join('');
-
-  if (lead.last_context) {
-    html += `<h4>Call Context</h4><div style="font-size:13px;color:var(--text-secondary);line-height:1.6;padding:4px 0;">${lead.last_context}</div>`;
-  }
-
-  if (lead.attempt_history && lead.attempt_history.length) {
-    html += `<h4>Attempt History</h4><ul class="history-list">`;
-    lead.attempt_history.slice().reverse().forEach(h => {
-      html += `<li>
-        <span class="history-outcome">${h.outcome}</span>
-        <span class="history-meta">· ${h.channel} · attempt ${h.attempt_number} · ${timeAgo(h.time)}</span>
-        ${h.ended_reason ? `<div class="history-meta">ended: ${h.ended_reason}</div>` : ''}
-        ${h.summary ? `<div class="history-summary">"${h.summary}"</div>` : ''}
-      </li>`;
-    });
-    html += `</ul>`;
-  }
-
-  document.getElementById('modal-body').innerHTML = html;
-
-  const actionsEl = document.getElementById('modal-actions');
-  actionsEl.innerHTML = '';
-
-  if (lead.status === 'wants_website_pending') {
-    const btn = document.createElement('button');
-    btn.className = 'btn btn-sm';
-    btn.textContent = 'Copy /send command';
-    btn.onclick = ()=> copyText(`/send ${lead.id} `, btn);
-    actionsEl.appendChild(btn);
-  } else if (!lead.do_not_call && !lead.exhausted && (lead.action?.kind === 'call' || ['bad_contact','callback_requested','no_answer','voicemail','busy'].includes(lead.status))) {
-    const callBtn = document.createElement('button');
-    callBtn.className = 'btn btn-sm';
-    callBtn.textContent = 'Call Now';
-    callBtn.onclick = async ()=>{
-      callBtn.disabled = true; callBtn.textContent = 'Calling…';
-      try { await API.trigger(lead.id); callBtn.textContent = 'Call placed ✓'; showToast('Call triggered'); }
-      catch(e) { callBtn.disabled = false; callBtn.textContent = 'Call Now'; showToast(e.message, 'error'); }
+    const API = {
+      stats: () => fetch(`/api/stats?key=${KEY}`).then(r => r.ok ? r.json() : Promise.reject()),
+      leads: () => fetch(`/api/leads?key=${KEY}`).then(r => r.ok ? r.json() : Promise.reject()),
+      followup: () => fetch(`/api/followup?key=${KEY}&show=all`).then(r => r.ok ? r.json() : Promise.reject()),
+      trigger: (leadId) => fetch(`/api/followup/trigger?key=${KEY}`, {
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({leadId})
+      }).then(r => r.ok ? r.json() : Promise.reject()),
+      dnc: (leadId) => fetch(`/api/dnc?key=${KEY}`, {
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({leadId})
+      }).then(r => r.ok ? r.json() : Promise.reject())
     };
-    actionsEl.appendChild(callBtn);
-  }
 
-  if (!lead.do_not_call) {
-    const dncBtn = document.createElement('button');
-    dncBtn.className = 'btn btn-sm btn-danger';
-    dncBtn.textContent = 'Mark DNC';
-    dncBtn.onclick = ()=> markDnc(lead.id);
-    actionsEl.appendChild(dncBtn);
-  }
+    function timeAgo(iso) {
+      if (!iso) return '—';
+      const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+      if (diff < 60) return 'just now';
+      if (diff < 3600) return Math.floor(diff/60) + 'm ago';
+      if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
+      return Math.floor(diff/86400) + 'd ago';
+    }
 
-  if (lead.phone) {
-    const copyBtn = document.createElement('button');
-    copyBtn.className = 'btn btn-secondary btn-sm';
-    copyBtn.textContent = 'Copy phone';
-    copyBtn.onclick = ()=> copyText(lead.phone, copyBtn);
-    actionsEl.appendChild(copyBtn);
-  }
+    function formatNext(iso) {
+      if (!iso) return '—';
+      const d = new Date(iso);
+      const now = new Date();
+      const diff = d - now;
+      if (diff < 0) return 'Due now';
+      if (diff < 3600000) return 'in ' + Math.ceil(diff/60000) + 'm';
+      if (diff < 86400000) return 'in ' + Math.ceil(diff/3600000) + 'h';
+      return d.toLocaleDateString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
+    }
 
-  const closeBtn = document.createElement('button');
-  closeBtn.className = 'btn btn-secondary btn-sm';
-  closeBtn.textContent = 'Close';
-  closeBtn.onclick = closeModal;
-  actionsEl.appendChild(closeBtn);
+    function statusTag(status) {
+      const map = {
+        booked: 'tag-booked', sent: 'tag-sent', pending: 'tag-pending',
+        followup: 'tag-followup', declined: 'tag-declined', no: 'tag-no'
+      };
+      const label = status || 'no';
+      return `<span class="tag ${map[label] || 'tag-no'}">${label.replace(/_/g,' ')}</span>`;
+    }
 
-  document.getElementById('modal').classList.add('open');
-}
+    function outcomeTag(outcome, exhausted, dnc) {
+      if (dnc) return '<span class="tag tag-dnc">DNC</span>';
+      if (exhausted) return '<span class="tag tag-exhausted">Exhausted</span>';
+      const map = {
+        no_answer: 'tag-no', voicemail: 'tag-followup', busy: 'tag-warning',
+        failed: 'tag-declined', connected: 'tag-booked', declined_permanent: 'tag-dnc'
+      };
+      const label = outcome || 'unknown';
+      return `<span class="tag ${map[label] || 'tag-no'}">${label.replace(/_/g,' ')}</span>`;
+    }
 
-function copyText(text, btn){
-  navigator.clipboard.writeText(text).then(()=>{
-    const orig = btn.textContent;
-    btn.textContent = 'Copied!';
-    setTimeout(()=> btn.textContent = orig, 1400);
-  });
-}
+    function showToast(msg, type='success') {
+      const t = document.getElementById('toast');
+      t.textContent = msg; t.className = 'toast show ' + type;
+      setTimeout(() => t.classList.remove('show'), 3000);
+    }
 
-function closeModal() {
-  document.getElementById('modal').classList.remove('open');
-}
+    function switchTab(tab) {
+      document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+      document.getElementById(tab + '-tab').classList.add('active');
+      document.querySelector(`.nav-item[data-tab="${tab}"]`).classList.add('active');
+      const titles = {overview:'Overview', leads:'All Leads', followup:'Follow Up Queue', pending:'Pending Websites'};
+      document.getElementById('page-title').textContent = titles[tab];
+      if (tab === 'followup') renderFollowUp();
+      if (tab === 'pending') renderPending();
+    }
 
-function exportLeads() {
-  const csv = [
-    ['ID','Name','Phone','Email','Status','Outcome','ContactOutcome','Attempts','DNC','NextAttempt','LastAttempt','Time'].join(','),
-    ...leadsData.map(l => [
-      l.id, `"${(l.name||'').replace(/"/g,'""')}"`, l.phone, l.email, l.status, l.outcome, l.contact_outcome||'',
-      l.call_attempts||1, l.do_not_call||false, l.next_attempt_at||'', l.last_attempt_at||'', l.time||''
-    ].join(','))
-  ].join('\n');
-  const blob = new Blob([csv], {type:'text/csv'});
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'leads.csv'; a.click();
-}
+    async function load() {
+      try {
+        const [stats, leads, followup] = await Promise.all([API.stats(), API.leads(), API.followup()]);
+        statsData = stats;
+        leadsData = leads.leads || [];
+        followUpData = followup.leads || [];
+        renderStats(); renderPulse(); renderRecent(); renderLeads(); renderFollowUp(); renderPending(); updateBadges();
+        document.getElementById('last-updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
+      } catch (e) {
+        showToast('Failed to load data: ' + e.message, 'error');
+      }
+    }
 
-// Close modal on overlay click or Escape
-document.getElementById('modal').addEventListener('click', e=>{ if(e.target === document.getElementById('modal')) closeModal(); });
-document.addEventListener('keydown', e=>{ if(e.key === 'Escape') closeModal(); });
+    function renderStats() {
+      const counts = { booked:0, sent:0, pending:0, followup:0, declined:0, no:0 };
+      leadsData.forEach(l => { counts[l.outcome || 'no'] = (counts[l.outcome || 'no'] || 0) + 1; });
+      const grid = document.getElementById('stats-grid');
+      const cards = [
+        {label:'Total Calls', value: statsData.totalCalls || leadsData.length, cls:''},
+        {label:'Booked', value: counts.booked, cls:'booked'},
+        {label:'Website Sent', value: counts.sent, cls:'sent'},
+        {label:'Pending Site', value: counts.pending, cls:'pending'},
+        {label:'Follow-up Needed', value: counts.followup, cls:'followup'},
+        {label:'Declined / No', value: counts.declined + counts.no, cls:''},
+      ];
+      grid.innerHTML = cards.map(c => `<div class="stat-card ${c.cls}"><div class="stat-label">${c.label}</div><div class="stat-value">${c.value}</div></div>`).join('');
+    }
 
-load();
-setInterval(load, 30000);
-</script>
+    function renderPulse() {
+      const pulse = statsData.pulse || [];
+      const wrap = document.getElementById('pulse-chart');
+      if (!pulse.length) { wrap.innerHTML = '<div class="empty">No data yet</div>'; return; }
+      wrap.innerHTML = pulse.map(p => `<div class="pulse-bar ${p}" style="height:${Math.max(8, Math.random()*80+10)}px" title="${p}"></div>`).join('');
+    }
+
+    function renderRecent() {
+      const recent = [...leadsData].slice(0, 8);
+      const box = document.getElementById('recent-activity');
+      if (!recent.length) { box.innerHTML = '<div class="empty">No calls yet</div>'; return; }
+      box.innerHTML = `<table><tbody>` + recent.map(l => `
+        <tr><td><strong>${l.name || 'Unknown'}</strong></td>
+        <td>${statusTag(l.outcome)}</td>
+        <td style="text-align:right">${timeAgo(l.last_attempt_at || l.time)}</td></tr>
+      `).join('') + `</tbody></table>`;
+    }
+
+    function renderLeads() {
+      const q = document.getElementById('leads-search').value.toLowerCase();
+      const filtered = leadsData.filter(l =>
+        !q || (l.name||'').toLowerCase().includes(q) || (l.phone||'').includes(q) || (l.email||'').toLowerCase().includes(q)
+      );
+      const tbody = document.getElementById('leads-body');
+      if (!filtered.length) { tbody.innerHTML = '<tr><td colspan="9" class="empty">No leads found</td></tr>'; return; }
+      tbody.innerHTML = filtered.map(l => `
+        <tr>
+          <td><strong>${l.name || '—'}</strong></td>
+          <td>${l.phone || '—'}</td>
+          <td>${statusTag(l.outcome)}</td>
+          <td>${l.email || '—'}</td>
+          <td>${timeAgo(l.last_attempt_at || l.time)}</td>
+          <td>${l.status || '—'}</td>
+          <td>${outcomeTag(l.contact_outcome, false, l.do_not_call)}</td>
+          <td>${l.call_attempts || 1}</td>
+          <td><button class="btn btn-secondary btn-sm" onclick="showHistoryById(${l.id})">History</button></td>
+        </tr>
+      `).join('');
+    }
+
+    function renderFollowUp() {
+      const q = document.getElementById('followup-search').value.toLowerCase();
+      let filtered = followUpData.filter(l =>
+        !q || (l.name||'').toLowerCase().includes(q) || (l.status||'').toLowerCase().includes(q)
+      );
+      if (!showExhausted) {
+        filtered = filtered.filter(l => !l.exhausted && !l.do_not_call);
+      }
+      const tbody = document.getElementById('followup-body');
+      if (!filtered.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">No follow-ups needed</td></tr>'; return; }
+      tbody.innerHTML = filtered.map(l => {
+        const act = l.action || {};
+        let btn = '';
+        if (l.do_not_call) {
+          btn = `<span class="tag tag-dnc">DNC</span>`;
+        } else if (l.exhausted) {
+          btn = `<span class="tag tag-exhausted">Exhausted</span> <button class="btn btn-sm btn-danger" onclick="markDnc(${l.id})">Mark DNC</button>`;
+        } else if (act.kind === 'call') {
+          btn = `<button class="btn btn-sm" onclick="triggerCall(${l.id}, '${(l.name||'').replace(/'/g,"\\'")}')">Call Now</button>
+                 <button class="btn btn-sm btn-danger" style="margin-left:6px" onclick="markDnc(${l.id})">DNC</button>`;
+        } else if (act.kind === 'send_link') {
+          btn = `<button class="btn btn-secondary btn-sm" onclick="showSendHint(${l.id})">Build & Send Site</button>`;
+        } else {
+          btn = `<span style="color:var(--text-secondary)">—</span>`;
+        }
+        btn += ` <button class="btn btn-secondary btn-sm" style="margin-left:6px" onclick="showHistoryById(${l.id})">History</button>`;
+
+        return `
+        <tr>
+          <td><strong>${l.name || '—'}</strong><br><span style="font-size:11px;color:var(--text-secondary)">${l.phone || ''}</span></td>
+          <td>${statusTag(l.status)}</td>
+          <td>${outcomeTag(l.contact_outcome, l.exhausted, l.do_not_call)}</td>
+          <td>${formatNext(l.next_attempt_at)}</td>
+          <td><div class="context-box" title="${(act.detail||'').replace(/"/g,'&quot;')}">${act.label || '—'}</div></td>
+          <td style="text-align:right;white-space:nowrap">${btn}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    function renderPending() {
+      const pending = leadsData.filter(l => l.status === 'wants_website_pending');
+      const tbody = document.getElementById('pending-body');
+      if (!pending.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty">No pending websites</td></tr>'; return; }
+      tbody.innerHTML = pending.map(l => `
+        <tr>
+          <td><strong>${l.name || '—'}</strong></td>
+          <td>${l.phone || '—'}</td>
+          <td>${l.email || '—'}</td>
+          <td>${timeAgo(l.last_attempt_at || l.time)}</td>
+          <td><code style="background:var(--bg);padding:4px 8px;border-radius:6px;font-size:12px;">/send ${l.id} https://…</code></td>
+        </tr>
+      `).join('');
+    }
+
+    function updateBadges() {
+      const f = followUpData.filter(l => !l.exhausted && !l.do_not_call).length;
+      const p = leadsData.filter(l => l.status === 'wants_website_pending').length;
+      const fb = document.getElementById('followup-badge');
+      const pb = document.getElementById('pending-badge');
+      fb.style.display = f ? 'inline-block' : 'none'; fb.textContent = f;
+      pb.style.display = p ? 'inline-block' : 'none'; pb.textContent = p;
+    }
+
+    function showExhaustedFilter() {
+      showExhausted = !showExhausted;
+      const btn = document.getElementById('exhausted-filter-btn');
+      btn.textContent = showExhausted ? 'Hide Exhausted' : 'Show Exhausted';
+      btn.classList.toggle('btn-secondary');
+      renderFollowUp();
+    }
+
+    async function triggerCall(id, name) {
+      const btn = event.target;
+      btn.disabled = true; btn.textContent = 'Calling…';
+      try {
+        const res = await API.trigger(id);
+        showToast(`Follow-up call triggered for ${name}`);
+        btn.textContent = 'Triggered';
+      } catch (e) {
+        showToast('Trigger failed: ' + e.message, 'error');
+        btn.disabled = false; btn.textContent = 'Call Now';
+      }
+    }
+
+    async function markDnc(id) {
+      if (!confirm('Permanently mark this lead as Do-Not-Call?')) return;
+      try {
+        await API.dnc(id);
+        showToast('Marked Do-Not-Call');
+        await load();
+      } catch (e) {
+        showToast('DNC failed: ' + e.message, 'error');
+      }
+    }
+
+    function showSendHint(id) {
+      document.getElementById('modal-title').textContent = 'Send Website Link';
+      document.getElementById('modal-body').innerHTML = `In Slack, type:<br><code style="background:var(--bg);padding:6px 10px;border-radius:6px;display:inline-block;margin-top:8px;">/send ${id} https://your-link.com</code>`;
+      document.getElementById('modal-primary').style.display = 'none';
+      document.getElementById('modal').classList.add('open');
+    }
+
+    function showHistory(lead) {
+      const history = lead.attempt_history || [];
+      document.getElementById('modal-title').textContent = `History: ${lead.name || 'Lead #' + lead.id}`;
+      let html = '<ul class="history-list">';
+      if (!history.length) html += '<li>No attempts recorded yet.</li>';
+      history.slice().reverse().forEach(h => {
+        html += `<li><span><span class="history-outcome">${h.outcome}</span> · ${h.channel} · attempt ${h.attempt_number}</span><span style="color:var(--text-secondary)">${timeAgo(h.time)}</span></li>`;
+      });
+      html += '</ul>';
+      document.getElementById('modal-body').innerHTML = html;
+      document.getElementById('modal-primary').style.display = 'none';
+      document.getElementById('modal').classList.add('open');
+    }
+
+    // Looks the lead up from whichever dataset currently holds it (Leads tab
+    // vs Follow Up tab pull from different filtered API responses) then opens
+    // the History modal for it.
+    function showHistoryById(id) {
+      const lead = leadsData.find(l => l.id === id) || followUpData.find(l => l.id === id);
+      if (!lead) { showToast('Lead not found', 'error'); return; }
+      showHistory(lead);
+    }
+
+    function closeModal() { document.getElementById('modal').classList.remove('open'); }
+
+    function exportLeads() {
+      const csv = [
+        ['ID','Name','Phone','Email','Status','Outcome','ContactOutcome','Attempts','DNC','NextAttempt','LastAttempt','Time'].join(','),
+        ...leadsData.map(l => [
+          l.id, `"${(l.name||'').replace(/"/g,'""')}"`, l.phone, l.email, l.status, l.outcome, l.contact_outcome||'',
+          l.call_attempts||1, l.do_not_call||false, l.next_attempt_at||'', l.last_attempt_at||'', l.time||''
+        ].join(','))
+      ].join('\n');
+      const blob = new Blob([csv], {type:'text/csv'});
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'leads.csv'; a.click();
+    }
+
+    load();
+    setInterval(load, 30000);
+  </script>
 </body>
 </html>

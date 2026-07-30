@@ -117,18 +117,17 @@ async function getZoomAccessToken() {
   return json.access_token;
 }
 
+
+// ---------- follow-up calling (re-engages a lead via a dedicated Vapi assistant) ----------
 function buildLastContext(lead) {
   const parts = [];
   if (lead.status === 'bad_contact') parts.push('they were interested but their email/contact info came through unclear on the call');
   else if (lead.status === 'wants_website_pending') parts.push('they asked for a website to be built and sent to them');
   else if (lead.status === 'callback_requested') parts.push('they asked to be called back at a better time');
   else if (lead.status === 'declined') parts.push('they were hesitant, but not a firm no');
-  else if (lead.status === 'booked') parts.push('they booked a Zoom meeting');
-  else if (lead.status === 'website_sent') parts.push('their website link was already sent');
   else parts.push('they did not pick up on the last attempt');
-  if (lead.objection) parts.push(`their stated reason/objection was: "${lead.objection}"`);
+  if (lead.objection) parts.push(`their stated reason/objection was: ${lead.objection}`);
   if (lead.zoom_time) parts.push(`they had discussed a time of: ${lead.zoom_time}`);
-  if (lead.ended_reason) parts.push(`call ended because: ${lead.ended_reason}`);
   return parts.join('; ');
 }
 
@@ -158,6 +157,23 @@ async function triggerFollowUpCall(lead) {
   }
   return resp.json();
 }
+
+app.get('/followup/trigger', async (req, res) => {
+  if (req.query.key !== process.env.CRON_SECRET) return res.sendStatus(401);
+  const leadId = req.query.leadId;
+  if (!leadId) return res.status(400).json({ error: 'leadId query param required' });
+
+  try {
+    const leads = await readLeads();
+    const lead = leads.find(l => String(l.id) === String(leadId));
+    if (!lead) return res.status(404).json({ error: `No lead found with id ${leadId}` });
+
+    const call = await triggerFollowUpCall(lead);
+    res.json({ ok: true, callId: call.id, calledContext: buildLastContext(lead) });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
 
 async function createZoomMeeting(topic, zoomTimeRaw) {
   const token = await getZoomAccessToken();
@@ -205,28 +221,29 @@ function resolveStatus(data) {
   return 'bad_contact';
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//  Webhook & API routes
-// ═══════════════════════════════════════════════════════════════════════════════
-
+// ---------- Vapi webhook: classifies outcome from call.endedReason (telephony
+// truth), drives the follow-up cadence, and fires the right post-call action ----------
 app.post('/webhook/vapi', async (req, res) => {
   const authHeader = req.headers['authorization'] || '';
   const token = authHeader.replace(/^Bearer\s+/i, '');
-  if (token !== process.env.VAPI_WEBHOOK_SECRET) return res.sendStatus(401);
+  if (token !== process.env.VAPI_WEBHOOK_SECRET) {
+    return res.sendStatus(401);
+  }
 
   const msg = req.body.message || req.body;
   const call = msg.call || {};
   const data = msg.analysis?.structuredData || {};
-  const summary = msg.analysis?.summary || null;
   const phone = call.customer?.number || 'unknown';
   const name = call.customer?.name || phone;
   const endedReason = call.endedReason || null;
   const assistantId = call.assistantId || call.assistant?.id || null;
+
   const contactOutcome = mapEndedReason(endedReason);
   const status = resolveStatus(data);
 
   const lead = await upsertLead({
-    phone, name,
+    phone,
+    name,
     email: data.email || null,
     status,
     contact_outcome: contactOutcome,
@@ -234,13 +251,15 @@ app.post('/webhook/vapi', async (req, res) => {
     call_assistant_id: assistantId,
     zoom_time: data.zoom_time || null,
     objection: data.objection || null,
-    call_id: call.id,
-    call_summary: summary
+    call_id: call.id
   });
 
+  // Compute next auto-attempt time (staggered cadence with time-of-day windows)
   const attempts = lead.call_attempts || 1;
   const nextAt = computeNextAttemptAt(attempts, lead.last_attempt_at);
-  if (nextAt !== null) await updateLeadById(lead.id, { next_attempt_at: nextAt });
+  if (nextAt !== null) {
+    await updateLeadById(lead.id, { next_attempt_at: nextAt });
+  }
 
   try {
     if (status === 'booked') {
@@ -248,7 +267,9 @@ app.post('/webhook/vapi', async (req, res) => {
         await sendSlack(`⚠️ Zoom booked with *${name}* but no email captured. Manual follow-up needed.`);
       } else {
         const joinUrl = await createZoomMeeting(`Call with ${name} — Alpha Logics`, data.zoom_time);
-        await sendEmail(lead.email, `Your call is booked${data.zoom_time ? ' — ' + data.zoom_time : ''}`,
+        await sendEmail(
+          lead.email,
+          `Your call is booked${data.zoom_time ? ' — ' + data.zoom_time : ''}`,
           `Hi ${name},\n\nYou're confirmed for a quick call about your website${data.zoom_time ? ' on ' + data.zoom_time : ''}.\n\nJoin here: ${joinUrl}\n\nWe'll walk through what you're looking for and how we can help — should take about 15 minutes, no pressure either way.\n\nTalk soon,\nAlpha Logics`
         );
       }
@@ -258,19 +279,24 @@ app.post('/webhook/vapi', async (req, res) => {
     } else if (status === 'bad_contact') {
       await sendSlack(`📞 *${name}* was interested but the contact info didn't come through clean. Lead #${lead.id} — worth a manual callback.`);
     } else if (contactOutcome === 'voicemail' || contactOutcome === 'no_answer') {
+      // SMS nudge only on the first miss
       if (attempts === 1) {
         await sendSms(phone, `Hi, this is Alpha Logics — tried reaching you about your website. Reply here anytime, or we'll try again soon.`);
       }
+      // Silent-drop follow-up: attempt 3+ that hits voicemail gets an email
+      // instead of yet another voicemail (repeated VMs read as spammy)
       if (attempts >= 3 && lead.email && contactOutcome === 'voicemail') {
-        await sendEmail(lead.email, 'Quick follow-up from Alpha Logics',
+        await sendEmail(
+          lead.email,
+          'Quick follow-up from Alpha Logics',
           `Hi ${name || 'there'},\n\nWe tried calling but missed you. If you're still interested in a free website review, just reply to this email or call us back.\n\nNo pressure either way.\n\nAlpha Logics`
         ).catch(() => {});
       }
     } else if (contactOutcome === 'busy') {
-      await sendSlack(`📞 *${name}* was busy. Auto-retry scheduled. Lead #${lead.id}`);
+      await sendSlack(`📞 *${name}* was busy. Auto-retry scheduled for next window. Lead #${lead.id}`);
     }
   } catch (e) {
-    console.error('Post-call action failed:', e.message);
+    console.error('Post-call action failed:', e.message, e.code, e.stack);
     await sendSlack(`⚠️ Action failed for lead #${lead.id} (${name}): ${e.message}`).catch(() => {});
   }
 
@@ -318,11 +344,7 @@ app.post('/webhook/slack', async (req, res) => {
 app.get('/api/leads', requireKey, async (req, res) => {
   const leads = [...await readLeads()]
     .sort((a, b) => new Date(b.time) - new Date(a.time))
-    .map(l => ({
-      ...l,
-      outcome: toDashboardOutcome(l.status),
-      contact_outcome: l.contact_outcome || l.status || 'unknown'
-    }));
+    .map(l => ({ ...l, outcome: toDashboardOutcome(l.status) }));
   res.json({ leads });
 });
 
@@ -338,14 +360,13 @@ app.get('/api/stats', requireKey, async (req, res) => {
 app.get('/leads/pending', requireKey, async (req, res) => {
   res.json((await readLeads()).filter(l => l.status === 'wants_website_pending'));
 });
-
 app.get('/leads/needs-follow-up', requireKey, async (req, res) => {
   res.json((await readLeads()).filter(l => l.status === 'bad_contact'));
 });
 
-// ── Follow-up tab logic ──────────────────────────────────────────────────────
-const FOLLOWUP_STATUSES = ['bad_contact', 'wants_website_pending', 'callback_requested'];
-const CALLABLE_BY_AGENT = ['bad_contact', 'callback_requested'];
+// ---------- Follow-up tab: everyone who needs a human, a callback, or an auto-redial ----------
+const FOLLOWUP_STATUSES = ['bad_contact', 'wants_website_pending', 'callback_requested', 'declined', 'no_answer', 'voicemail'];
+const CALLABLE_BY_AGENT = ['bad_contact', 'callback_requested', 'declined', 'no_answer', 'voicemail'];
 const RETRYABLE_OUTCOMES = ['no_answer', 'voicemail', 'busy', 'failed'];
 
 function followUpAction(lead) {
@@ -358,10 +379,9 @@ function followUpAction(lead) {
   if (lead.status === 'wants_website_pending') {
     return { kind: 'send_link', label: 'Build & send site', detail: `Reply /send ${lead.id} <url> in Slack.` };
   }
-  const effectiveOutcome = lead.contact_outcome || lead.status;
-  if (CALLABLE_BY_AGENT.includes(lead.status) || RETRYABLE_OUTCOMES.includes(effectiveOutcome)) {
+  if (CALLABLE_BY_AGENT.includes(lead.status) || RETRYABLE_OUTCOMES.includes(lead.contact_outcome)) {
     const next = lead.next_attempt_at ? new Date(lead.next_attempt_at).toLocaleString() : 'soon';
-    const detail = `Attempt ${lead.call_attempts || 1}/${MAX_ATTEMPTS} · ${effectiveOutcome} · next: ${next}`;
+    const detail = `Attempt ${lead.call_attempts || 1}/${MAX_ATTEMPTS} · ${lead.contact_outcome || lead.status} · next: ${next}`;
     return { kind: 'call', label: 'Call now', detail };
   }
   return { kind: 'none', label: '—', detail: '' };
@@ -369,22 +389,17 @@ function followUpAction(lead) {
 
 app.get('/api/followup', requireKey, async (req, res) => {
   const leads = (await readLeads())
-    .filter(l => {
-      const effectiveOutcome = l.contact_outcome || l.status;
-      return FOLLOWUP_STATUSES.includes(l.status) || RETRYABLE_OUTCOMES.includes(effectiveOutcome);
-    })
+    .filter(l => FOLLOWUP_STATUSES.includes(l.status) || RETRYABLE_OUTCOMES.includes(l.contact_outcome))
     .filter(l => !l.do_not_call || req.query.show === 'all')
     .sort((a, b) => new Date(b.last_attempt_at || b.time) - new Date(a.last_attempt_at || a.time))
     .map(l => {
       const exhausted = (l.call_attempts || 0) >= MAX_ATTEMPTS;
-      const effectiveOutcome = l.contact_outcome || l.status || 'unknown';
       return {
         ...l,
         action: followUpAction(l),
         exhausted,
         next_attempt_at: l.next_attempt_at || null,
-        contact_outcome: effectiveOutcome,
-        last_context: buildLastContext(l)
+        contact_outcome: l.contact_outcome || 'unknown'
       };
     });
   res.json({ leads });
@@ -406,6 +421,7 @@ app.post('/api/followup/trigger', requireKey, async (req, res) => {
     leads[idx].follow_up_attempts = (lead.follow_up_attempts || 0) + 1;
     leads[idx].last_attempt_at = new Date().toISOString();
 
+    // Compute next auto-attempt window off the back of this manual trigger too
     const nextAt = computeNextAttemptAt(leads[idx].call_attempts || 1, leads[idx].last_attempt_at);
     if (nextAt !== null) leads[idx].next_attempt_at = nextAt;
 
@@ -418,6 +434,7 @@ app.post('/api/followup/trigger', requireKey, async (req, res) => {
   }
 });
 
+// Mark lead as Do-Not-Call from dashboard — the permanent safety net
 app.post('/api/dnc', requireKey, async (req, res) => {
   const { leadId } = req.body || {};
   if (!leadId) return res.status(400).json({ ok: false, error: 'leadId required' });
@@ -425,24 +442,6 @@ app.post('/api/dnc', requireKey, async (req, res) => {
     await markDoNotCall(leadId);
     await sendSlack(`🚫 Lead #${leadId} marked Do-Not-Call from the dashboard.`).catch(() => {});
     res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: e.message });
-  }
-});
-
-// ── Cron / manual trigger (legacy GET route, kept for backward compat) ───────
-app.get('/followup/trigger', async (req, res) => {
-  if (req.query.key !== process.env.CRON_SECRET) return res.sendStatus(401);
-  const leadId = req.query.leadId;
-  if (!leadId) return res.status(400).json({ error: 'leadId query param required' });
-
-  try {
-    const leads = await readLeads();
-    const lead = leads.find(l => String(l.id) === String(leadId));
-    if (!lead) return res.status(404).json({ error: `No lead found with id ${leadId}` });
-
-    const call = await triggerFollowUpCall(lead);
-    res.json({ ok: true, callId: call.id, calledContext: buildLastContext(lead) });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }

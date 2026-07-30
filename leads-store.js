@@ -42,6 +42,9 @@ function toDashboardOutcome(status) {
   }
 }
 
+// Maps Vapi's telephony-level call.endedReason into a reliable contact outcome.
+// This is the source of truth for "did they pick up, voicemail, busy, etc." —
+// more reliable than guessing from the transcript/structured data.
 function mapEndedReason(endedReason) {
   if (!endedReason) return 'no_answer';
   const r = endedReason.toLowerCase();
@@ -60,6 +63,8 @@ function mapEndedReason(endedReason) {
   return 'failed';
 }
 
+// Safety net: if the lead explicitly says stop calling, permanently flag them
+// regardless of what else is happening on the call — checked before every dial.
 function hasDncLanguage(objection = '') {
   const dnc = ['stop calling', 'do not call', 'take me off', 'remove me', 'dnc', "don't call", 'never call'];
   return dnc.some(phrase => objection.toLowerCase().includes(phrase));
@@ -94,16 +99,17 @@ async function upsertLead(fields) {
     follow_up_attempts: isFollowUpCall ? (existing.follow_up_attempts || 0) + 1 : (existing.follow_up_attempts || 0)
   };
 
+  // Append to the full attempt audit trail (not just a counter)
   const historyEntry = {
     time: now,
     outcome: fields.contact_outcome || existing.contact_outcome || 'unknown',
     channel: 'voice',
     ended_reason: fields.ended_reason || null,
-    attempt_number: isFollowUpCall ? (existing.follow_up_attempts || 0) + 1 : (existing.call_attempts || 0) + 1,
-    summary: fields.call_summary || null
+    attempt_number: isFollowUpCall ? (existing.follow_up_attempts || 0) + 1 : (existing.call_attempts || 0) + 1
   };
   updated.attempt_history = [...(existing.attempt_history || []), historyEntry];
 
+  // DNC safety: if they explicitly said stop calling, this overrides everything else
   if (hasDncLanguage(fields.objection)) {
     updated.do_not_call = true;
     updated.contact_outcome = 'declined_permanent';

@@ -90,14 +90,49 @@ standard SMTP — leave them unless your plan says otherwise.
    nothing further to configure here, just make sure the Request URL there
    matches your final Railway domain.
 
-## 6. Redial cron
+## 6. Follow-up system — staggered redial with silent drops and a DNC safety net
 
-The server has a `/cron/redial?key=<CRON_SECRET>` endpoint that redials anyone
-stuck on no-answer/voicemail, up to 6 attempts, 24 hours apart. Trigger it daily:
+Before deploying this version, run `migration_followup_system.sql` once in your
+Supabase SQL Editor (it's additive and safe to re-run).
+
+**How a missed call gets classified.** Vapi's `call.endedReason` — telephony-level
+data, not a guess from the transcript — is mapped by `mapEndedReason()` in
+`leads-store.js` into one of: `no_answer`, `voicemail`, `busy`, `connected`, or
+`failed`. This is what actually decides whether/when a lead gets called again.
+
+**The cadence.** `requeue-check.js` computes `next_attempt_at` after every call
+using a fixed schedule tuned to answer-rate research (late morning and
+mid-afternoon see the best pickup rates):
+
+| Attempt | Spacing after previous | Target window |
+|---|---|---|
+| 2 | next day | ~11am |
+| 3 | +1 day | ~4pm |
+| 4 | +2 days | ~9am |
+| 5 | +2 days | ~2pm |
+| 6 | +3 days | ~4pm |
+
+Each time gets +/-30 min of jitter so retries don't land at a robotically exact
+minute. After attempt 6, the lead stops auto-dialing and shows as "Exhausted" in
+the Follow Up tab for a manual decision.
+
+**Silent drops instead of spammy voicemails.** The first miss gets one SMS
+nudge. From attempt 3 onward, a voicemail hit gets a follow-up email instead of
+another recorded voicemail — repeated identical voicemails read as spam and hurt
+response rates more than they help.
+
+**Do-Not-Call is permanent and checked everywhere.** If a lead says anything
+like "stop calling" or "take me off your list" on a call, `hasDncLanguage()`
+sets `do_not_call = true` immediately and it's respected by the redial cron,
+the dashboard's "Call Now" button, and the manual trigger endpoint — no code
+path can dial a DNC lead. You can also flag one manually from the dashboard.
+
+**Trigger it daily:**
 
 - Free option: [cron-job.org](https://cron-job.org) → new cron job → URL
   `https://<your-app>/cron/redial?key=<your CRON_SECRET>` → schedule daily.
-- It's safe to hit more often than daily — leads not yet due just get skipped.
+- It's safe to hit more often than daily — leads not yet due just get skipped
+  (the endpoint checks `next_attempt_at` itself).
 
 ## 7. Dashboard
 
@@ -111,6 +146,13 @@ https://<your-app>.up.railway.app/dashboard?key=<DASHBOARD_KEY>
 Bookmark that exact URL (with the key in it) on your phone/laptop. It shows
 the call pulse, the funnel, your action queue, and the full lead table —
 refreshes every 30s.
+
+The **Follow Up** tab shows, per lead: which attempt number it's on out of 6,
+what happened last time (no answer / voicemail / busy), and exactly when the
+next auto-attempt is scheduled. Click **History** on any lead (Leads tab or
+Follow Up tab) to see the full timestamped attempt log. **Mark DNC** on any
+row permanently stops all future dialing for that lead — use it the moment
+someone asks to be left alone.
 
 **Why the key matters:** `/api/leads` and `/api/stats` return real customer
 names, emails, and phone numbers. Without `DASHBOARD_KEY` set, the server
@@ -141,9 +183,12 @@ In the Vapi dashboard, open **Evals**:
 - Booked meetings get confirmed by email + you get a ✅ Slack ping.
 - "Wants website" leads wait in your queue — build the site, reply
   `/send <id> <url>` in Slack, it emails them and confirms back to you.
-- No-answers redial themselves for up to 6 tries, spaced a day apart, with one
-  SMS nudge after the first miss.
-- Check `dashboard/index.html` whenever you want the full picture at a glance.
+- No-answers, voicemails, and busy signals redial themselves for up to 6 tries
+  on a staggered schedule (see section 6), with one SMS nudge after the first
+  miss and email instead of a 3rd+ voicemail.
+- Anyone who says stop calling is permanently excluded from every future dial —
+  check the Follow Up tab if you ever need to confirm someone's DNC status.
+- Check the dashboard whenever you want the full picture at a glance.
 
 ## What's a placeholder you should adjust
 
@@ -152,6 +197,8 @@ In the Vapi dashboard, open **Evals**:
   if you rename or add fields there, update this function to match.
 - Email copy in `server.js` (`sendEmail(...)` calls) — currently generic, swap
   in your actual tone/signature.
-- `leads.json` is a flat file — fine at your current volume. If you move to
-  Supabase later, only `leads-store.js` needs to change; every other file calls
-  through it and won't need edits.
+- The `CADENCE` array in `requeue-check.js` — the spacing/timing between
+  attempts. Adjust `delayHours`/`targetHour` per row if your ideal call windows
+  differ from the 11am/4pm/9am/2pm/4pm defaults.
+- `hasDncLanguage()` in `leads-store.js` — the phrase list that triggers an
+  automatic Do-Not-Call flag. Add any other phrasing your callers commonly use.
