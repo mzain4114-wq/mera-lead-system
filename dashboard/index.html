@@ -108,6 +108,8 @@ td strong { color: var(--text); font-weight: 500; }
 .tag-no { background: rgba(154,160,166,0.1); color: var(--text-secondary); }
 .tag-dnc { background: rgba(234,67,53,0.25); color: #ff6b6b; }
 .tag-exhausted { background: rgba(170,0,255,0.15); color: var(--info); }
+.tag-connected { background: rgba(52,168,83,0.15); color: var(--success); }
+.tag-busy { background: rgba(251,188,4,0.15); color: var(--warning); }
 .empty { padding: 40px; text-align: center; color: var(--text-secondary); font-size: 14px; }
 .context-box { max-width: 320px; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: var(--text-secondary); }
 .toast {
@@ -120,14 +122,23 @@ td strong { color: var(--text); font-weight: 500; }
 .toast.error { border-color: var(--danger); }
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 999; }
 .modal-overlay.open { display: flex; }
-.modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); width: 520px; max-width: 90%; padding: 24px; max-height: 80vh; overflow-y: auto; }
-.modal h3 { margin: 0 0 12px; font-size: 16px; }
-.modal p { color: var(--text-secondary); font-size: 13px; line-height: 1.6; margin: 0 0 20px; }
-.modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); width: 560px; max-width: 92%; padding: 24px; max-height: 86vh; overflow-y: auto; }
+.modal h3 { margin: 0 0 4px; font-size: 17px; }
+.modal .msub { font-size: 12px; color: var(--text-secondary); margin-bottom: 16px; }
+.modal h4 { margin: 18px 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-secondary); }
+.mrow { display: flex; justify-content: space-between; gap: 14px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.mrow:last-child { border-bottom: none; }
+.mrow .k { color: var(--text-secondary); white-space: nowrap; min-width: 120px; }
+.mrow .v { text-align: right; word-break: break-word; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--text); }
+.modal-close { float: right; background: none; border: none; color: var(--text-secondary); font-size: 22px; line-height: 1; padding: 0; cursor: pointer; }
+.modal-close:hover { color: var(--text); }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
 .history-list { margin: 0; padding: 0; list-style: none; }
-.history-list li { padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; display: flex; justify-content: space-between; }
+.history-list li { padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
 .history-list li:last-child { border-bottom: none; }
 .history-outcome { font-weight: 600; color: var(--text); }
+.history-meta { font-size: 11px; color: var(--text-secondary); margin-top: 3px; }
+.history-summary { font-size: 12px; color: var(--text-secondary); margin-top: 4px; font-style: italic; }
 @media (max-width: 900px) {
   .sidebar { width: 64px; padding: 16px 8px; }
   .logo { display: none; }
@@ -247,12 +258,11 @@ td strong { color: var(--text); font-weight: 500; }
 
 <div class="modal-overlay" id="modal">
   <div class="modal">
+    <button class="modal-close" onclick="closeModal()">&times;</button>
     <h3 id="modal-title">Title</h3>
+    <div class="msub" id="modal-sub">—</div>
     <div id="modal-body"></div>
-    <div class="modal-actions">
-      <button class="btn btn-secondary btn-sm" onclick="closeModal()">Close</button>
-      <button class="btn btn-sm" id="modal-primary" onclick="closeModal()">OK</button>
-    </div>
+    <div class="modal-actions" id="modal-actions"></div>
   </div>
 </div>
 
@@ -314,8 +324,9 @@ function outcomeTag(outcome, exhausted, dnc) {
   if (dnc) return '<span class="tag tag-dnc">DNC</span>';
   if (exhausted) return '<span class="tag tag-exhausted">Exhausted</span>';
   const map = {
-    no_answer: 'tag-no', voicemail: 'tag-followup', busy: 'tag-warning',
-    failed: 'tag-declined', connected: 'tag-booked', declined_permanent: 'tag-dnc'
+    no_answer: 'tag-no', voicemail: 'tag-followup', busy: 'tag-busy',
+    failed: 'tag-declined', connected: 'tag-connected', declined_permanent: 'tag-dnc',
+    declined: 'tag-declined', callback_requested: 'tag-pending', bad_contact: 'tag-followup'
   };
   const label = outcome || 'unknown';
   return `<span class="tag ${map[label] || 'tag-no'}">${label.replace(/_/g,' ')}</span>`;
@@ -392,7 +403,7 @@ function renderLeads() {
   const tbody = document.getElementById('leads-body');
   if (!filtered.length) { tbody.innerHTML = '<tr><td colspan="8" class="empty">No leads found</td></tr>'; return; }
   tbody.innerHTML = filtered.map(l => `
-    <tr>
+    <tr onclick="showLeadDetailById(${l.id})" style="cursor:pointer">
       <td><strong>${l.name || '—'}</strong></td>
       <td>${l.phone || '—'}</td>
       <td>${statusTag(l.outcome)}</td>
@@ -421,17 +432,17 @@ function renderFollowUp() {
     if (l.do_not_call) {
       btn = `<span class="tag tag-dnc">DNC</span>`;
     } else if (l.exhausted) {
-      btn = `<span class="tag tag-exhausted">Exhausted</span> <button class="btn btn-sm btn-danger" onclick="markDnc(${l.id})">Mark DNC</button>`;
+      btn = `<span class="tag tag-exhausted">Exhausted</span> <button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); markDnc(${l.id})">Mark DNC</button>`;
     } else if (act.kind === 'call') {
-      btn = `<button class="btn btn-sm" onclick="triggerCall(${l.id}, '${(l.name||'').replace(/'/g,"\\'")}')">Call Now</button>
-      <button class="btn btn-sm btn-danger" style="margin-left:6px" onclick="markDnc(${l.id})">DNC</button>`;
+      btn = `<button class="btn btn-sm" onclick="event.stopPropagation(); triggerCall(${l.id}, '${(l.name||'').replace(/'/g,"\\'")}')">Call Now</button>
+      <button class="btn btn-sm btn-danger" style="margin-left:6px" onclick="event.stopPropagation(); markDnc(${l.id})">DNC</button>`;
     } else if (act.kind === 'send_link') {
-      btn = `<button class="btn btn-secondary btn-sm" onclick="showSendHint(${l.id})">Build & Send Site</button>`;
+      btn = `<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); showSendHint(${l.id})">Build & Send Site</button>`;
     } else {
       btn = `<span style="color:var(--text-secondary)">—</span>`;
     }
     return `
-      <tr>
+      <tr onclick="showLeadDetailById(${l.id})" style="cursor:pointer">
         <td><strong>${l.name || '—'}</strong><br><span style="font-size:11px;color:var(--text-secondary)">${l.phone || ''}</span></td>
         <td>${statusTag(l.status)}</td>
         <td>${outcomeTag(l.contact_outcome, l.exhausted, l.do_not_call)}</td>
@@ -500,23 +511,113 @@ async function markDnc(id) {
 
 function showSendHint(id) {
   document.getElementById('modal-title').textContent = 'Send Website Link';
+  document.getElementById('modal-sub').textContent = '';
   document.getElementById('modal-body').innerHTML = `In Slack, type:<br><code style="background:var(--bg);padding:6px 10px;border-radius:6px;display:inline-block;margin-top:8px;">/send ${id} https://your-link.com</code>`;
-  document.getElementById('modal-primary').style.display = 'none';
+  document.getElementById('modal-actions').innerHTML = `<button class="btn btn-secondary btn-sm" onclick="closeModal()">Close</button>`;
   document.getElementById('modal').classList.add('open');
 }
 
-function showHistory(lead) {
-  const history = lead.attempt_history || [];
-  document.getElementById('modal-title').textContent = `History: ${lead.name || 'Lead #' + lead.id}`;
-  let html = '<ul class="history-list">';
-  if (!history.length) html += '<li>No attempts recorded yet.</li>';
-  history.slice().reverse().forEach(h => {
-    html += `<li><span><span class="history-outcome">${h.outcome}</span> · ${h.channel} · attempt ${h.attempt_number}</span><span style="color:var(--text-secondary)">${timeAgo(h.time)}</span></li>`;
-  });
-  html += '</ul>';
+function showLeadDetailById(id) {
+  const lead = followUpData.find(l => l.id === id) || leadsData.find(l => l.id === id);
+  if (!lead) return;
+  showLeadDetail(lead);
+}
+
+function showLeadDetail(lead) {
+  document.getElementById('modal-title').textContent = lead.name || 'Lead #' + lead.id;
+  const meta = (lead.contact_outcome || lead.status || 'unknown').replace(/_/g, ' ');
+  document.getElementById('modal-sub').textContent = `ID #${lead.id}  ·  ${meta}`;
+
+  const rows = [
+    ['Phone', lead.phone || '—'],
+    ['Email', lead.email || '—'],
+    ['Status', (lead.status || '—').replace(/_/g, ' ')],
+    ['Contact Outcome', (lead.contact_outcome || '—').replace(/_/g, ' ')],
+    ['Vapi Ended Reason', lead.ended_reason || '—'],
+    ['Objection', lead.objection || '—'],
+    ['Zoom Time', lead.zoom_time || '—'],
+    ['Call Attempts', lead.call_attempts || 1],
+    ['Follow-up Calls', lead.follow_up_attempts || 0],
+    ['Next Retry', formatNext(lead.next_attempt_at)],
+    ['Last Activity', timeAgo(lead.last_attempt_at || lead.time)],
+    ['First Seen', timeAgo(lead.time)],
+  ];
+
+  let html = rows.map(([k,v]) =>
+    `<div class="mrow"><span class="k">${k}</span><span class="v">${v}</span></div>`
+  ).join('');
+
+  if (lead.last_context) {
+    html += `<h4>Call Context</h4><div style="font-size:13px;color:var(--text-secondary);line-height:1.6;padding:4px 0;">${lead.last_context}</div>`;
+  }
+
+  if (lead.attempt_history && lead.attempt_history.length) {
+    html += `<h4>Attempt History</h4><ul class="history-list">`;
+    lead.attempt_history.slice().reverse().forEach(h => {
+      html += `<li>
+        <span class="history-outcome">${h.outcome}</span>
+        <span class="history-meta">· ${h.channel} · attempt ${h.attempt_number} · ${timeAgo(h.time)}</span>
+        ${h.ended_reason ? `<div class="history-meta">ended: ${h.ended_reason}</div>` : ''}
+        ${h.summary ? `<div class="history-summary">"${h.summary}"</div>` : ''}
+      </li>`;
+    });
+    html += `</ul>`;
+  }
+
   document.getElementById('modal-body').innerHTML = html;
-  document.getElementById('modal-primary').style.display = 'none';
+
+  const actionsEl = document.getElementById('modal-actions');
+  actionsEl.innerHTML = '';
+
+  if (lead.status === 'wants_website_pending') {
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-sm';
+    btn.textContent = 'Copy /send command';
+    btn.onclick = ()=> copyText(`/send ${lead.id} `, btn);
+    actionsEl.appendChild(btn);
+  } else if (!lead.do_not_call && !lead.exhausted && (lead.action?.kind === 'call' || ['bad_contact','callback_requested','no_answer','voicemail','busy'].includes(lead.status))) {
+    const callBtn = document.createElement('button');
+    callBtn.className = 'btn btn-sm';
+    callBtn.textContent = 'Call Now';
+    callBtn.onclick = async ()=>{
+      callBtn.disabled = true; callBtn.textContent = 'Calling…';
+      try { await API.trigger(lead.id); callBtn.textContent = 'Call placed ✓'; showToast('Call triggered'); }
+      catch(e) { callBtn.disabled = false; callBtn.textContent = 'Call Now'; showToast(e.message, 'error'); }
+    };
+    actionsEl.appendChild(callBtn);
+  }
+
+  if (!lead.do_not_call) {
+    const dncBtn = document.createElement('button');
+    dncBtn.className = 'btn btn-sm btn-danger';
+    dncBtn.textContent = 'Mark DNC';
+    dncBtn.onclick = ()=> markDnc(lead.id);
+    actionsEl.appendChild(dncBtn);
+  }
+
+  if (lead.phone) {
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'btn btn-secondary btn-sm';
+    copyBtn.textContent = 'Copy phone';
+    copyBtn.onclick = ()=> copyText(lead.phone, copyBtn);
+    actionsEl.appendChild(copyBtn);
+  }
+
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'btn btn-secondary btn-sm';
+  closeBtn.textContent = 'Close';
+  closeBtn.onclick = closeModal;
+  actionsEl.appendChild(closeBtn);
+
   document.getElementById('modal').classList.add('open');
+}
+
+function copyText(text, btn){
+  navigator.clipboard.writeText(text).then(()=>{
+    const orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    setTimeout(()=> btn.textContent = orig, 1400);
+  });
 }
 
 function closeModal() {
@@ -534,6 +635,10 @@ function exportLeads() {
   const blob = new Blob([csv], {type:'text/csv'});
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'leads.csv'; a.click();
 }
+
+// Close modal on overlay click or Escape
+document.getElementById('modal').addEventListener('click', e=>{ if(e.target === document.getElementById('modal')) closeModal(); });
+document.addEventListener('keydown', e=>{ if(e.key === 'Escape') closeModal(); });
 
 load();
 setInterval(load, 30000);

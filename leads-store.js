@@ -99,7 +99,8 @@ async function upsertLead(fields) {
     outcome: fields.contact_outcome || existing.contact_outcome || 'unknown',
     channel: 'voice',
     ended_reason: fields.ended_reason || null,
-    attempt_number: isFollowUpCall ? (existing.follow_up_attempts || 0) + 1 : (existing.call_attempts || 0) + 1
+    attempt_number: isFollowUpCall ? (existing.follow_up_attempts || 0) + 1 : (existing.call_attempts || 0) + 1,
+    summary: fields.call_summary || null
   };
   updated.attempt_history = [...(existing.attempt_history || []), historyEntry];
 

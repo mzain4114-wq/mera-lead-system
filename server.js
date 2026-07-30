@@ -123,9 +123,12 @@ function buildLastContext(lead) {
   else if (lead.status === 'wants_website_pending') parts.push('they asked for a website to be built and sent to them');
   else if (lead.status === 'callback_requested') parts.push('they asked to be called back at a better time');
   else if (lead.status === 'declined') parts.push('they were hesitant, but not a firm no');
+  else if (lead.status === 'booked') parts.push('they booked a Zoom meeting');
+  else if (lead.status === 'website_sent') parts.push('their website link was already sent');
   else parts.push('they did not pick up on the last attempt');
-  if (lead.objection) parts.push(`their stated reason/objection was: ${lead.objection}`);
+  if (lead.objection) parts.push(`their stated reason/objection was: "${lead.objection}"`);
   if (lead.zoom_time) parts.push(`they had discussed a time of: ${lead.zoom_time}`);
+  if (lead.ended_reason) parts.push(`call ended because: ${lead.ended_reason}`);
   return parts.join('; ');
 }
 
@@ -214,6 +217,7 @@ app.post('/webhook/vapi', async (req, res) => {
   const msg = req.body.message || req.body;
   const call = msg.call || {};
   const data = msg.analysis?.structuredData || {};
+  const summary = msg.analysis?.summary || null;
   const phone = call.customer?.number || 'unknown';
   const name = call.customer?.name || phone;
   const endedReason = call.endedReason || null;
@@ -230,7 +234,8 @@ app.post('/webhook/vapi', async (req, res) => {
     call_assistant_id: assistantId,
     zoom_time: data.zoom_time || null,
     objection: data.objection || null,
-    call_id: call.id
+    call_id: call.id,
+    call_summary: summary
   });
 
   const attempts = lead.call_attempts || 1;
@@ -313,7 +318,11 @@ app.post('/webhook/slack', async (req, res) => {
 app.get('/api/leads', requireKey, async (req, res) => {
   const leads = [...await readLeads()]
     .sort((a, b) => new Date(b.time) - new Date(a.time))
-    .map(l => ({ ...l, outcome: toDashboardOutcome(l.status) }));
+    .map(l => ({
+      ...l,
+      outcome: toDashboardOutcome(l.status),
+      contact_outcome: l.contact_outcome || l.status || 'unknown'
+    }));
   res.json({ leads });
 });
 
@@ -335,8 +344,8 @@ app.get('/leads/needs-follow-up', requireKey, async (req, res) => {
 });
 
 // ── Follow-up tab logic ──────────────────────────────────────────────────────
-const FOLLOWUP_STATUSES = ['bad_contact', 'wants_website_pending', 'callback_requested', 'declined', 'no_answer', 'voicemail'];
-const CALLABLE_BY_AGENT = ['bad_contact', 'callback_requested', 'declined', 'no_answer', 'voicemail'];
+const FOLLOWUP_STATUSES = ['bad_contact', 'wants_website_pending', 'callback_requested'];
+const CALLABLE_BY_AGENT = ['bad_contact', 'callback_requested'];
 const RETRYABLE_OUTCOMES = ['no_answer', 'voicemail', 'busy', 'failed'];
 
 function followUpAction(lead) {
@@ -349,9 +358,10 @@ function followUpAction(lead) {
   if (lead.status === 'wants_website_pending') {
     return { kind: 'send_link', label: 'Build & send site', detail: `Reply /send ${lead.id} <url> in Slack.` };
   }
-  if (CALLABLE_BY_AGENT.includes(lead.status) || RETRYABLE_OUTCOMES.includes(lead.contact_outcome)) {
+  const effectiveOutcome = lead.contact_outcome || lead.status;
+  if (CALLABLE_BY_AGENT.includes(lead.status) || RETRYABLE_OUTCOMES.includes(effectiveOutcome)) {
     const next = lead.next_attempt_at ? new Date(lead.next_attempt_at).toLocaleString() : 'soon';
-    const detail = `Attempt ${lead.call_attempts || 1}/${MAX_ATTEMPTS} · ${lead.contact_outcome || lead.status} · next: ${next}`;
+    const detail = `Attempt ${lead.call_attempts || 1}/${MAX_ATTEMPTS} · ${effectiveOutcome} · next: ${next}`;
     return { kind: 'call', label: 'Call now', detail };
   }
   return { kind: 'none', label: '—', detail: '' };
@@ -359,17 +369,22 @@ function followUpAction(lead) {
 
 app.get('/api/followup', requireKey, async (req, res) => {
   const leads = (await readLeads())
-    .filter(l => FOLLOWUP_STATUSES.includes(l.status) || RETRYABLE_OUTCOMES.includes(l.contact_outcome))
+    .filter(l => {
+      const effectiveOutcome = l.contact_outcome || l.status;
+      return FOLLOWUP_STATUSES.includes(l.status) || RETRYABLE_OUTCOMES.includes(effectiveOutcome);
+    })
     .filter(l => !l.do_not_call || req.query.show === 'all')
     .sort((a, b) => new Date(b.last_attempt_at || b.time) - new Date(a.last_attempt_at || a.time))
     .map(l => {
       const exhausted = (l.call_attempts || 0) >= MAX_ATTEMPTS;
+      const effectiveOutcome = l.contact_outcome || l.status || 'unknown';
       return {
         ...l,
         action: followUpAction(l),
         exhausted,
         next_attempt_at: l.next_attempt_at || null,
-        contact_outcome: l.contact_outcome || 'unknown'
+        contact_outcome: effectiveOutcome,
+        last_context: buildLastContext(l)
       };
     });
   res.json({ leads });
