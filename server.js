@@ -4,7 +4,7 @@ const express = require('express');
 const twilio = require('twilio');
 const {
   readLeads, upsertLead, toDashboardOutcome, writeLeads,
-  updateLeadById, markDoNotCall, mapEndedReason, endedReasonLabel, appendNotification
+  updateLeadById, markDoNotCall, mapEndedReason
 } = require('./leads-store');
 const {
   getDueForRedial, redial, computeNextAttemptAt, MAX_ATTEMPTS
@@ -237,10 +237,6 @@ app.post('/webhook/vapi', async (req, res) => {
   const name = call.customer?.name || phone;
   const endedReason = call.endedReason || null;
   const assistantId = call.assistantId || call.assistant?.id || null;
-  // Vapi's summaryPlan output — a plain-English recap of what happened on the
-  // call. This is what lets you glance at Follow Up and know *why* without
-  // re-listening to the recording.
-  const callSummary = msg.analysis?.summary || msg.summary || null;
 
   const contactOutcome = mapEndedReason(endedReason);
   const status = resolveStatus(data);
@@ -252,7 +248,6 @@ app.post('/webhook/vapi', async (req, res) => {
     status,
     contact_outcome: contactOutcome,
     ended_reason: endedReason,
-    call_summary: callSummary,
     call_assistant_id: assistantId,
     zoom_time: data.zoom_time || null,
     objection: data.objection || null,
@@ -266,54 +261,39 @@ app.post('/webhook/vapi', async (req, res) => {
     await updateLeadById(lead.id, { next_attempt_at: nextAt });
   }
 
-  // Every Slack/email/SMS fired below also gets logged against the lead so
-  // it's visible on the dashboard, not just in the Slack channel history.
-  async function notify(channel, text, sendFn) {
-    try {
-      await sendFn();
-    } finally {
-      await appendNotification(lead.id, { channel, text }).catch(() => {});
-    }
-  }
-
   try {
     if (status === 'booked') {
       if (!lead.email) {
-        await notify('slack', `Zoom booked with ${name} but no email captured — needs manual follow-up.`,
-          () => sendSlack(`⚠️ Zoom booked with *${name}* but no email captured. Manual follow-up needed.`));
+        await sendSlack(`⚠️ Zoom booked with *${name}* but no email captured. Manual follow-up needed.`);
       } else {
         const joinUrl = await createZoomMeeting(`Call with ${name} — Alpha Logics`, data.zoom_time);
-        const emailText = `Hi ${name},\n\nYou're confirmed for a quick call about your website${data.zoom_time ? ' on ' + data.zoom_time : ''}.\n\nJoin here: ${joinUrl}\n\nWe'll walk through what you're looking for and how we can help — should take about 15 minutes, no pressure either way.\n\nTalk soon,\nAlpha Logics`;
-        await notify('email', `Sent Zoom confirmation to ${lead.email}`,
-          () => sendEmail(lead.email, `Your call is booked${data.zoom_time ? ' — ' + data.zoom_time : ''}`, emailText));
+        await sendEmail(
+          lead.email,
+          `Your call is booked${data.zoom_time ? ' — ' + data.zoom_time : ''}`,
+          `Hi ${name},\n\nYou're confirmed for a quick call about your website${data.zoom_time ? ' on ' + data.zoom_time : ''}.\n\nJoin here: ${joinUrl}\n\nWe'll walk through what you're looking for and how we can help — should take about 15 minutes, no pressure either way.\n\nTalk soon,\nAlpha Logics`
+        );
       }
-      await notify('slack', `Zoom booked with ${name}${data.zoom_time ? ' for ' + data.zoom_time : ''} — confirmation emailed.`,
-        () => sendSlack(`✅ Zoom booked with *${name}*${data.zoom_time ? ' for ' + data.zoom_time : ''} — confirmation emailed.`));
+      await sendSlack(`✅ Zoom booked with *${name}*${data.zoom_time ? ' for ' + data.zoom_time : ''} — confirmation emailed.`);
     } else if (status === 'wants_website_pending') {
-      await notify('slack', `${name} wants their site emailed once it's built.`,
-        () => sendSlack(`🔨 *${name}* wants their site emailed.\nLead #${lead.id} — ${lead.email}\nReply: \`/send ${lead.id} https://link.com\` when it's ready.`));
+      await sendSlack(`🔨 *${name}* wants their site emailed.\nLead #${lead.id} — ${lead.email}\nReply: \`/send ${lead.id} https://link.com\` when it's ready.`);
     } else if (status === 'bad_contact') {
-      await notify('slack', `${name} was interested but contact info was unclear — needs a manual callback.`,
-        () => sendSlack(`📞 *${name}* was interested but the contact info didn't come through clean. Lead #${lead.id} — worth a manual callback.`));
+      await sendSlack(`📞 *${name}* was interested but the contact info didn't come through clean. Lead #${lead.id} — worth a manual callback.`);
     } else if (contactOutcome === 'voicemail' || contactOutcome === 'no_answer') {
       // SMS nudge only on the first miss
       if (attempts === 1) {
-        await notify('sms', `Sent "tried reaching you" text nudge.`,
-          () => sendSms(phone, `Hi, this is Alpha Logics — tried reaching you about your website. Reply here anytime, or we'll try again soon.`));
+        await sendSms(phone, `Hi, this is Alpha Logics — tried reaching you about your website. Reply here anytime, or we'll try again soon.`);
       }
       // Silent-drop follow-up: attempt 3+ that hits voicemail gets an email
       // instead of yet another voicemail (repeated VMs read as spammy)
       if (attempts >= 3 && lead.email && contactOutcome === 'voicemail') {
-        await notify('email', `Sent silent-drop follow-up email (attempt ${attempts}, went to voicemail).`,
-          () => sendEmail(
-            lead.email,
-            'Quick follow-up from Alpha Logics',
-            `Hi ${name || 'there'},\n\nWe tried calling but missed you. If you're still interested in a free website review, just reply to this email or call us back.\n\nNo pressure either way.\n\nAlpha Logics`
-          )).catch(() => {});
+        await sendEmail(
+          lead.email,
+          'Quick follow-up from Alpha Logics',
+          `Hi ${name || 'there'},\n\nWe tried calling but missed you. If you're still interested in a free website review, just reply to this email or call us back.\n\nNo pressure either way.\n\nAlpha Logics`
+        ).catch(() => {});
       }
     } else if (contactOutcome === 'busy') {
-      await notify('slack', `${name} was busy — auto-retry scheduled for next window.`,
-        () => sendSlack(`📞 *${name}* was busy. Auto-retry scheduled for next window. Lead #${lead.id}`));
+      await sendSlack(`📞 *${name}* was busy. Auto-retry scheduled for next window. Lead #${lead.id}`);
     }
   } catch (e) {
     console.error('Post-call action failed:', e.message, e.code, e.stack);
@@ -346,7 +326,6 @@ app.post('/webhook/slack', async (req, res) => {
       const idx = all.findIndex(l => l.id === lead.id);
       all[idx].status = 'website_sent';
       await writeLeads(all);
-      await appendNotification(lead.id, { channel: 'email', text: `Sent finished website link: ${url}` }).catch(() => {});
       await sendSlack(`✅ Sent to *${lead.name}* (#${lead.id}).`);
     } catch (e) {
       await sendSlack(`⚠️ Failed to send to #${lead.id}: ${e.message}`);
@@ -365,13 +344,7 @@ app.post('/webhook/slack', async (req, res) => {
 app.get('/api/leads', requireKey, async (req, res) => {
   const leads = [...await readLeads()]
     .sort((a, b) => new Date(b.time) - new Date(a.time))
-    .map(l => ({
-      ...l,
-      outcome: toDashboardOutcome(l.status),
-      ended_reason_label: endedReasonLabel(l.ended_reason),
-      call_summary: l.call_summary || null,
-      notifications: l.notifications || []
-    }));
+    .map(l => ({ ...l, outcome: toDashboardOutcome(l.status) }));
   res.json({ leads });
 });
 
@@ -392,12 +365,8 @@ app.get('/leads/needs-follow-up', requireKey, async (req, res) => {
 });
 
 // ---------- Follow-up tab: everyone who needs a human, a callback, or an auto-redial ----------
-// Note: 'declined' (an explicit no during a connected call) is deliberately
-// excluded here — only genuinely-missed contact (no answer, voicemail, busy,
-// unclear info, callback requests) belongs in the active Follow Up queue.
-// A firm decline still shows up in the Leads tab, just not as "needs action".
-const FOLLOWUP_STATUSES = ['bad_contact', 'wants_website_pending', 'callback_requested', 'no_answer', 'voicemail'];
-const CALLABLE_BY_AGENT = ['bad_contact', 'callback_requested', 'no_answer', 'voicemail'];
+const FOLLOWUP_STATUSES = ['bad_contact', 'wants_website_pending', 'callback_requested', 'declined', 'no_answer', 'voicemail'];
+const CALLABLE_BY_AGENT = ['bad_contact', 'callback_requested', 'declined', 'no_answer', 'voicemail'];
 const RETRYABLE_OUTCOMES = ['no_answer', 'voicemail', 'busy', 'failed'];
 
 function followUpAction(lead) {
@@ -412,8 +381,7 @@ function followUpAction(lead) {
   }
   if (CALLABLE_BY_AGENT.includes(lead.status) || RETRYABLE_OUTCOMES.includes(lead.contact_outcome)) {
     const next = lead.next_attempt_at ? new Date(lead.next_attempt_at).toLocaleString() : 'soon';
-    const reason = endedReasonLabel(lead.ended_reason);
-    const detail = `Attempt ${lead.call_attempts || 1}/${MAX_ATTEMPTS} · ${reason} · next: ${next}`;
+    const detail = `Attempt ${lead.call_attempts || 1}/${MAX_ATTEMPTS} · ${lead.contact_outcome || lead.status} · next: ${next}`;
     return { kind: 'call', label: 'Call now', detail };
   }
   return { kind: 'none', label: '—', detail: '' };
@@ -431,10 +399,7 @@ app.get('/api/followup', requireKey, async (req, res) => {
         action: followUpAction(l),
         exhausted,
         next_attempt_at: l.next_attempt_at || null,
-        contact_outcome: l.contact_outcome || 'unknown',
-        ended_reason_label: endedReasonLabel(l.ended_reason),
-        call_summary: l.call_summary || null,
-        notifications: l.notifications || []
+        contact_outcome: l.contact_outcome || 'unknown'
       };
     });
   res.json({ leads });

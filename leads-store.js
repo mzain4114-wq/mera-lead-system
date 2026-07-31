@@ -70,40 +70,6 @@ function hasDncLanguage(objection = '') {
   return dnc.some(phrase => objection.toLowerCase().includes(phrase));
 }
 
-// Human-readable version of Vapi's raw endedReason, for the dashboard —
-// so it reads "Went to voicemail" instead of "voicemail" or "customer-did-not-answer".
-function endedReasonLabel(endedReason) {
-  if (!endedReason) return 'Unknown / no data from Vapi';
-  const map = {
-    'customer-did-not-answer': 'No answer',
-    'customer-busy': 'Line was busy',
-    'voicemail': 'Went to voicemail',
-    'customer-ended-call': 'Customer hung up',
-    'silence-timed-out': 'No response (silence)',
-    'exceeded-max-duration': 'Call completed (max duration hit)',
-    'manually-canceled': 'Call was canceled',
-    'worker-shutdown': 'System error (worker shutdown)',
-    'call-deleted': 'Call was deleted',
-  };
-  if (map[endedReason]) return map[endedReason];
-  if (endedReason.startsWith('assistant-ended-call')) return 'Assistant ended the call';
-  if (endedReason.startsWith('pipeline-error')) return 'Technical error mid-call';
-  if (endedReason.startsWith('call-start-error')) return 'Call failed to start';
-  return endedReason.replace(/-/g, ' ');
-}
-
-// Read-modify-write log of every outbound touch (Slack, email, SMS) tied to a
-// lead — so "what did we actually send them and when" is visible on the
-// dashboard instead of only living in the Slack channel history.
-async function appendNotification(id, entry) {
-  const { data: existing, error: readErr } = await supabase.from('leads').select('notifications').eq('id', id).maybeSingle();
-  if (readErr) throw new Error(`Supabase notification read failed: ${readErr.message}`);
-  const notifications = [...(existing?.notifications || []), { ...entry, time: new Date().toISOString() }];
-  const { error } = await supabase.from('leads').update({ notifications }).eq('id', id);
-  if (error) throw new Error(`Supabase notification update failed: ${error.message}`);
-  return notifications;
-}
-
 async function upsertLead(fields) {
   const now = new Date().toISOString();
   const { data: existing } = await supabase.from('leads').select('*').eq('phone', fields.phone).maybeSingle();
@@ -139,7 +105,6 @@ async function upsertLead(fields) {
     outcome: fields.contact_outcome || existing.contact_outcome || 'unknown',
     channel: 'voice',
     ended_reason: fields.ended_reason || null,
-    summary: fields.call_summary || null,
     attempt_number: isFollowUpCall ? (existing.follow_up_attempts || 0) + 1 : (existing.call_attempts || 0) + 1
   };
   updated.attempt_history = [...(existing.attempt_history || []), historyEntry];
@@ -157,5 +122,5 @@ async function upsertLead(fields) {
 
 module.exports = {
   readLeads, writeLeads, upsertLead, updateLeadById, markDoNotCall,
-  toDashboardOutcome, mapEndedReason, hasDncLanguage, endedReasonLabel, appendNotification
+  toDashboardOutcome, mapEndedReason, hasDncLanguage
 };
