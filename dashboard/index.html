@@ -206,7 +206,7 @@
             <div class="section-body">
               <table>
                 <thead><tr>
-                  <th>Name</th><th>Phone</th><th>Status</th><th>Email</th><th>Last Attempt</th><th>Outcome</th><th>Contact</th><th>Attempts</th><th></th>
+                  <th>Name</th><th>Phone</th><th>Status</th><th>Email</th><th>Last Attempt</th><th>Outcome</th><th>Contact</th><th>Reason</th><th>Attempts</th><th></th>
                 </tr></thead>
                 <tbody id="leads-body"></tbody>
               </table>
@@ -224,7 +224,7 @@
             <div class="section-body">
               <table>
                 <thead><tr>
-                  <th>Name</th><th>Status</th><th>Contact Outcome</th><th>Next Try</th><th>Action</th><th></th>
+                  <th>Name</th><th>Status</th><th>Contact Outcome</th><th>Reason</th><th>Next Try</th><th>Action</th><th></th>
                 </tr></thead>
                 <tbody id="followup-body"></tbody>
               </table>
@@ -399,7 +399,7 @@
         !q || (l.name||'').toLowerCase().includes(q) || (l.phone||'').includes(q) || (l.email||'').toLowerCase().includes(q)
       );
       const tbody = document.getElementById('leads-body');
-      if (!filtered.length) { tbody.innerHTML = '<tr><td colspan="9" class="empty">No leads found</td></tr>'; return; }
+      if (!filtered.length) { tbody.innerHTML = '<tr><td colspan="10" class="empty">No leads found</td></tr>'; return; }
       tbody.innerHTML = filtered.map(l => `
         <tr>
           <td><strong>${l.name || '—'}</strong></td>
@@ -409,8 +409,9 @@
           <td>${timeAgo(l.last_attempt_at || l.time)}</td>
           <td>${l.status || '—'}</td>
           <td>${outcomeTag(l.contact_outcome, false, l.do_not_call)}</td>
+          <td><div class="context-box" title="${(l.call_summary||'').replace(/"/g,'&quot;')}">${l.ended_reason_label || '—'}</div></td>
           <td>${l.call_attempts || 1}</td>
-          <td><button class="btn btn-secondary btn-sm" onclick="showHistoryById(${l.id})">History</button></td>
+          <td><button class="btn btn-secondary btn-sm" onclick="showHistoryById(${l.id})">Details</button></td>
         </tr>
       `).join('');
     }
@@ -424,7 +425,7 @@
         filtered = filtered.filter(l => !l.exhausted && !l.do_not_call);
       }
       const tbody = document.getElementById('followup-body');
-      if (!filtered.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">No follow-ups needed</td></tr>'; return; }
+      if (!filtered.length) { tbody.innerHTML = '<tr><td colspan="7" class="empty">No follow-ups needed</td></tr>'; return; }
       tbody.innerHTML = filtered.map(l => {
         const act = l.action || {};
         let btn = '';
@@ -440,13 +441,17 @@
         } else {
           btn = `<span style="color:var(--text-secondary)">—</span>`;
         }
-        btn += ` <button class="btn btn-secondary btn-sm" style="margin-left:6px" onclick="showHistoryById(${l.id})">History</button>`;
+        btn += ` <button class="btn btn-secondary btn-sm" style="margin-left:6px" onclick="showHistoryById(${l.id})">Details</button>`;
+
+        const reasonText = l.ended_reason_label || '—';
+        const summaryPreview = l.call_summary ? l.call_summary.slice(0, 60) + (l.call_summary.length > 60 ? '…' : '') : '';
 
         return `
         <tr>
           <td><strong>${l.name || '—'}</strong><br><span style="font-size:11px;color:var(--text-secondary)">${l.phone || ''}</span></td>
           <td>${statusTag(l.status)}</td>
           <td>${outcomeTag(l.contact_outcome, l.exhausted, l.do_not_call)}</td>
+          <td><div class="context-box" title="${(l.call_summary||'').replace(/"/g,'&quot;')}">${reasonText}${summaryPreview ? '<br><span style=\"font-size:11px\">'+summaryPreview+'</span>' : ''}</div></td>
           <td>${formatNext(l.next_attempt_at)}</td>
           <td><div class="context-box" title="${(act.detail||'').replace(/"/g,'&quot;')}">${act.label || '—'}</div></td>
           <td style="text-align:right;white-space:nowrap">${btn}</td>
@@ -519,13 +524,37 @@
 
     function showHistory(lead) {
       const history = lead.attempt_history || [];
-      document.getElementById('modal-title').textContent = `History: ${lead.name || 'Lead #' + lead.id}`;
-      let html = '<ul class="history-list">';
+      const notifications = lead.notifications || [];
+      document.getElementById('modal-title').textContent = `Details: ${lead.name || 'Lead #' + lead.id}`;
+
+      let html = '';
+
+      if (lead.call_summary) {
+        html += `<div style="margin-bottom:16px;padding:12px 14px;background:var(--bg);border-radius:8px;font-size:13px;line-height:1.5;">
+          <div style="color:var(--text-secondary);font-size:11px;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px;">Last call summary</div>
+          ${lead.call_summary}
+        </div>`;
+      }
+      if (lead.ended_reason_label) {
+        html += `<div style="margin-bottom:16px;font-size:13px;"><strong>Last outcome:</strong> ${lead.ended_reason_label}</div>`;
+      }
+
+      html += '<div style="font-size:11px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px;">Call attempts</div>';
+      html += '<ul class="history-list">';
       if (!history.length) html += '<li>No attempts recorded yet.</li>';
       history.slice().reverse().forEach(h => {
-        html += `<li><span><span class="history-outcome">${h.outcome}</span> · ${h.channel} · attempt ${h.attempt_number}</span><span style="color:var(--text-secondary)">${timeAgo(h.time)}</span></li>`;
+        html += `<li><span><span class="history-outcome">${h.outcome}</span> · attempt ${h.attempt_number}${h.ended_reason ? ' · ' + h.ended_reason : ''}</span><span style="color:var(--text-secondary)">${timeAgo(h.time)}</span></li>`;
       });
       html += '</ul>';
+
+      html += '<div style="font-size:11px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.4px;margin:16px 0 6px;">Messages sent (Slack / email / SMS)</div>';
+      html += '<ul class="history-list">';
+      if (!notifications.length) html += '<li>Nothing sent yet.</li>';
+      notifications.slice().reverse().forEach(n => {
+        html += `<li><span><span class="history-outcome">${n.channel}</span> — ${n.text}</span><span style="color:var(--text-secondary);white-space:nowrap;margin-left:10px;">${timeAgo(n.time)}</span></li>`;
+      });
+      html += '</ul>';
+
       document.getElementById('modal-body').innerHTML = html;
       document.getElementById('modal-primary').style.display = 'none';
       document.getElementById('modal').classList.add('open');
