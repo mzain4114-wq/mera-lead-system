@@ -170,6 +170,10 @@
           <span>Pending</span>
           <span class="badge" id="pending-badge" style="display:none">0</span>
         </button>
+        <button class="nav-item" data-tab="import" onclick="switchTab('import')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <span>Import</span>
+        </button>
       </nav>
     </aside>
 
@@ -206,7 +210,7 @@
             <div class="section-body">
               <table>
                 <thead><tr>
-                  <th>Name</th><th>Phone</th><th>Status</th><th>Email</th><th>Last Attempt</th><th>Outcome</th><th>Contact</th><th>Attempts</th><th></th>
+                  <th>Name</th><th>Phone</th><th>Status</th><th>Email</th><th>Last Attempt</th><th>Outcome</th><th>Contact</th><th>Reason</th><th>Attempts</th><th></th>
                 </tr></thead>
                 <tbody id="leads-body"></tbody>
               </table>
@@ -224,7 +228,7 @@
             <div class="section-body">
               <table>
                 <thead><tr>
-                  <th>Name</th><th>Status</th><th>Contact Outcome</th><th>Next Try</th><th>Action</th><th></th>
+                  <th>Name</th><th>Status</th><th>Contact Outcome</th><th>Reason</th><th>Next Try</th><th>Action</th><th></th>
                 </tr></thead>
                 <tbody id="followup-body"></tbody>
               </table>
@@ -244,6 +248,34 @@
                   <th>Name</th><th>Phone</th><th>Email</th><th>Requested</th><th>Slack Command</th>
                 </tr></thead>
                 <tbody id="pending-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- IMPORT -->
+        <div id="import-tab" class="tab">
+          <div class="section" style="padding:22px;">
+            <div style="font-weight:600;font-size:15px;margin-bottom:6px;">Upload a lead list</div>
+            <div style="color:var(--text-secondary);font-size:13px;margin-bottom:16px;">
+              CSV or Excel (.csv, .xlsx, .xls). Needs a column with "phone" in the header — name and email columns are optional but recommended.
+              Nothing gets called on upload — leads sit as <strong>queued</strong> until you start that batch below.
+            </div>
+            <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+              <input type="file" id="import-file" accept=".csv,.xlsx,.xls" style="color:var(--text-secondary);font-size:13px;">
+              <input type="text" id="import-batch-name" class="search" placeholder="Batch name (optional)" style="width:220px;">
+              <button class="btn btn-sm" onclick="uploadLeadFile()">Upload</button>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-header">Batches</div>
+            <div class="section-body">
+              <table>
+                <thead><tr>
+                  <th>Batch</th><th>Uploaded</th><th>Total</th><th>Queued</th><th>Started</th><th></th>
+                </tr></thead>
+                <tbody id="batches-body"></tbody>
               </table>
             </div>
           </div>
@@ -287,7 +319,14 @@
       }).then(r => r.ok ? r.json() : Promise.reject()),
       dnc: (leadId) => fetch(`/api/dnc?key=${KEY}`, {
         method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({leadId})
-      }).then(r => r.ok ? r.json() : Promise.reject())
+      }).then(r => r.ok ? r.json() : Promise.reject()),
+      batches: () => fetch(`/api/batches?key=${KEY}`).then(r => r.ok ? r.json() : Promise.reject()),
+      importFile: (formData) => fetch(`/api/leads/import?key=${KEY}`, {
+        method: 'POST', body: formData
+      }).then(async r => { const j = await r.json(); if (!r.ok || j.ok === false) throw new Error(j.error || 'Import failed'); return j; }),
+      startCampaign: (batchId) => fetch(`/api/campaign/start?key=${KEY}`, {
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({batchId})
+      }).then(async r => { const j = await r.json(); if (!r.ok || j.ok === false) throw new Error(j.error || 'Failed to start'); return j; })
     };
 
     function timeAgo(iso) {
@@ -341,10 +380,11 @@
       document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
       document.getElementById(tab + '-tab').classList.add('active');
       document.querySelector(`.nav-item[data-tab="${tab}"]`).classList.add('active');
-      const titles = {overview:'Overview', leads:'All Leads', followup:'Follow Up Queue', pending:'Pending Websites'};
+      const titles = {overview:'Overview', leads:'All Leads', followup:'Follow Up Queue', pending:'Pending Websites', import:'Import Leads'};
       document.getElementById('page-title').textContent = titles[tab];
       if (tab === 'followup') renderFollowUp();
       if (tab === 'pending') renderPending();
+      if (tab === 'import') loadBatches();
     }
 
     async function load() {
@@ -399,7 +439,7 @@
         !q || (l.name||'').toLowerCase().includes(q) || (l.phone||'').includes(q) || (l.email||'').toLowerCase().includes(q)
       );
       const tbody = document.getElementById('leads-body');
-      if (!filtered.length) { tbody.innerHTML = '<tr><td colspan="9" class="empty">No leads found</td></tr>'; return; }
+      if (!filtered.length) { tbody.innerHTML = '<tr><td colspan="10" class="empty">No leads found</td></tr>'; return; }
       tbody.innerHTML = filtered.map(l => `
         <tr>
           <td><strong>${l.name || '—'}</strong></td>
@@ -409,8 +449,9 @@
           <td>${timeAgo(l.last_attempt_at || l.time)}</td>
           <td>${l.status || '—'}</td>
           <td>${outcomeTag(l.contact_outcome, false, l.do_not_call)}</td>
+          <td><div class="context-box" title="${(l.call_summary||'').replace(/"/g,'&quot;')}">${l.ended_reason_label || '—'}</div></td>
           <td>${l.call_attempts || 1}</td>
-          <td><button class="btn btn-secondary btn-sm" onclick="showHistoryById(${l.id})">History</button></td>
+          <td><button class="btn btn-secondary btn-sm" onclick="showHistoryById(${l.id})">Details</button></td>
         </tr>
       `).join('');
     }
@@ -424,7 +465,7 @@
         filtered = filtered.filter(l => !l.exhausted && !l.do_not_call);
       }
       const tbody = document.getElementById('followup-body');
-      if (!filtered.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">No follow-ups needed</td></tr>'; return; }
+      if (!filtered.length) { tbody.innerHTML = '<tr><td colspan="7" class="empty">No follow-ups needed</td></tr>'; return; }
       tbody.innerHTML = filtered.map(l => {
         const act = l.action || {};
         let btn = '';
@@ -440,13 +481,17 @@
         } else {
           btn = `<span style="color:var(--text-secondary)">—</span>`;
         }
-        btn += ` <button class="btn btn-secondary btn-sm" style="margin-left:6px" onclick="showHistoryById(${l.id})">History</button>`;
+        btn += ` <button class="btn btn-secondary btn-sm" style="margin-left:6px" onclick="showHistoryById(${l.id})">Details</button>`;
+
+        const reasonText = l.ended_reason_label || '—';
+        const summaryPreview = l.call_summary ? l.call_summary.slice(0, 60) + (l.call_summary.length > 60 ? '…' : '') : '';
 
         return `
         <tr>
           <td><strong>${l.name || '—'}</strong><br><span style="font-size:11px;color:var(--text-secondary)">${l.phone || ''}</span></td>
           <td>${statusTag(l.status)}</td>
           <td>${outcomeTag(l.contact_outcome, l.exhausted, l.do_not_call)}</td>
+          <td><div class="context-box" title="${(l.call_summary||'').replace(/"/g,'&quot;')}">${reasonText}${summaryPreview ? '<br><span style=\"font-size:11px\">'+summaryPreview+'</span>' : ''}</div></td>
           <td>${formatNext(l.next_attempt_at)}</td>
           <td><div class="context-box" title="${(act.detail||'').replace(/"/g,'&quot;')}">${act.label || '—'}</div></td>
           <td style="text-align:right;white-space:nowrap">${btn}</td>
@@ -519,13 +564,37 @@
 
     function showHistory(lead) {
       const history = lead.attempt_history || [];
-      document.getElementById('modal-title').textContent = `History: ${lead.name || 'Lead #' + lead.id}`;
-      let html = '<ul class="history-list">';
+      const notifications = lead.notifications || [];
+      document.getElementById('modal-title').textContent = `Details: ${lead.name || 'Lead #' + lead.id}`;
+
+      let html = '';
+
+      if (lead.call_summary) {
+        html += `<div style="margin-bottom:16px;padding:12px 14px;background:var(--bg);border-radius:8px;font-size:13px;line-height:1.5;">
+          <div style="color:var(--text-secondary);font-size:11px;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px;">Last call summary</div>
+          ${lead.call_summary}
+        </div>`;
+      }
+      if (lead.ended_reason_label) {
+        html += `<div style="margin-bottom:16px;font-size:13px;"><strong>Last outcome:</strong> ${lead.ended_reason_label}</div>`;
+      }
+
+      html += '<div style="font-size:11px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px;">Call attempts</div>';
+      html += '<ul class="history-list">';
       if (!history.length) html += '<li>No attempts recorded yet.</li>';
       history.slice().reverse().forEach(h => {
-        html += `<li><span><span class="history-outcome">${h.outcome}</span> · ${h.channel} · attempt ${h.attempt_number}</span><span style="color:var(--text-secondary)">${timeAgo(h.time)}</span></li>`;
+        html += `<li><span><span class="history-outcome">${h.outcome}</span> · attempt ${h.attempt_number}${h.ended_reason ? ' · ' + h.ended_reason : ''}</span><span style="color:var(--text-secondary)">${timeAgo(h.time)}</span></li>`;
       });
       html += '</ul>';
+
+      html += '<div style="font-size:11px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.4px;margin:16px 0 6px;">Messages sent (Slack / email / SMS)</div>';
+      html += '<ul class="history-list">';
+      if (!notifications.length) html += '<li>Nothing sent yet.</li>';
+      notifications.slice().reverse().forEach(n => {
+        html += `<li><span><span class="history-outcome">${n.channel}</span> — ${n.text}</span><span style="color:var(--text-secondary);white-space:nowrap;margin-left:10px;">${timeAgo(n.time)}</span></li>`;
+      });
+      html += '</ul>';
+
       document.getElementById('modal-body').innerHTML = html;
       document.getElementById('modal-primary').style.display = 'none';
       document.getElementById('modal').classList.add('open');
@@ -552,6 +621,69 @@
       ].join('\n');
       const blob = new Blob([csv], {type:'text/csv'});
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'leads.csv'; a.click();
+    }
+
+    // ---------- Import tab: CSV/Excel upload + manual campaign start ----------
+    let batchesData = [];
+
+    async function loadBatches() {
+      try {
+        const res = await API.batches();
+        batchesData = res.batches || [];
+        renderBatches();
+      } catch (e) {
+        showToast('Failed to load batches: ' + e.message, 'error');
+      }
+    }
+
+    function renderBatches() {
+      const tbody = document.getElementById('batches-body');
+      if (!batchesData.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">No batches uploaded yet</td></tr>'; return; }
+      tbody.innerHTML = batchesData.map(b => {
+        const allStarted = b.queued === 0;
+        const startBtn = allStarted
+          ? `<span class="tag tag-sent">All started</span>`
+          : `<button class="btn btn-sm" onclick="startCampaignClick('${b.batch_id}', '${(b.batch_name||'').replace(/'/g,"\\'")}')">Start Campaign (${b.queued})</button>`;
+        return `
+        <tr>
+          <td><strong>${b.batch_name || b.batch_id}</strong></td>
+          <td>${timeAgo(b.uploaded_at)}</td>
+          <td>${b.total}</td>
+          <td>${b.queued}</td>
+          <td>${b.started}</td>
+          <td style="text-align:right">${startBtn}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    async function uploadLeadFile() {
+      const fileInput = document.getElementById('import-file');
+      const nameInput = document.getElementById('import-batch-name');
+      if (!fileInput.files.length) { showToast('Choose a CSV or Excel file first', 'error'); return; }
+
+      const fd = new FormData();
+      fd.append('file', fileInput.files[0]);
+      if (nameInput.value.trim()) fd.append('batchName', nameInput.value.trim());
+
+      try {
+        const result = await API.importFile(fd);
+        showToast(`Imported ${result.total} leads (${result.inserted} new, ${result.updated} re-queued)`);
+        fileInput.value = ''; nameInput.value = '';
+        await loadBatches();
+      } catch (e) {
+        showToast('Import failed: ' + e.message, 'error');
+      }
+    }
+
+    async function startCampaignClick(batchId, batchName) {
+      if (!confirm(`Start calling this batch now? This will begin dialing leads in "${batchName}", spaced about 20 seconds apart.`)) return;
+      try {
+        const result = await API.startCampaign(batchId);
+        showToast(`Campaign started — dialing ${result.queued} leads now`);
+        await loadBatches();
+      } catch (e) {
+        showToast('Failed to start campaign: ' + e.message, 'error');
+      }
     }
 
     load();

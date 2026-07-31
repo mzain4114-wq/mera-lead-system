@@ -1,7 +1,7 @@
 {
   "name": "mera-lead-system",
-  "version": "3.0.0",
-  "description": "End-to-end lead automation for Mera (Vapi outbound voice agent): webhook intake, qualification, auto-email, Slack control loop, staggered multi-attempt follow-up cadence with silent drops, Do-Not-Call safety net, and a stats dashboard.",
+  "version": "4.0.0",
+  "description": "End-to-end lead automation for Mera (Vapi outbound voice agent): webhook intake, qualification, auto-email, Slack control loop, staggered multi-attempt follow-up cadence with silent drops, Do-Not-Call safety net, CSV/Excel batch import with manual campaign start, and a stats dashboard.",
   "main": "server.js",
   "type": "commonjs",
   "scripts": {
@@ -11,6 +11,8 @@
     "@supabase/supabase-js": "^2.110.9",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "twilio": "^5.2.2"
+    "multer": "^2.0.0",
+    "twilio": "^5.2.2",
+    "xlsx": "^0.18.5"
   }
 }

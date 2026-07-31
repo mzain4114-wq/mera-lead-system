@@ -2,9 +2,12 @@ require('dotenv').config();
 const crypto = require('crypto');
 const express = require('express');
 const twilio = require('twilio');
+const multer = require('multer');
+const XLSX = require('xlsx');
 const {
   readLeads, upsertLead, toDashboardOutcome, writeLeads,
-  updateLeadById, markDoNotCall, mapEndedReason
+  updateLeadById, markDoNotCall, mapEndedReason, endedReasonLabel, appendNotification,
+  importLeads, getBatches
 } = require('./leads-store');
 const {
   getDueForRedial, redial, computeNextAttemptAt, MAX_ATTEMPTS
@@ -17,6 +20,8 @@ app.use('/webhook/slack', express.urlencoded({
   extended: true,
   verify: (req, res, buf) => { req.rawBody = buf; }
 }));
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
@@ -231,12 +236,28 @@ app.post('/webhook/vapi', async (req, res) => {
   }
 
   const msg = req.body.message || req.body;
+
+  // Vapi fires several message types per call to this same URL (status-update,
+  // speech-update, transcript, conversation-update, end-of-call-report...).
+  // Only end-of-call-report carries the final endedReason + analysis — acting
+  // on any earlier one writes a lead with no phone/email/summary yet, which
+  // is exactly what produces "unknown" / declined-with-no-email rows.
+  if (msg.type && msg.type !== 'end-of-call-report') {
+    return res.sendStatus(200);
+  }
+
   const call = msg.call || {};
   const data = msg.analysis?.structuredData || {};
   const phone = call.customer?.number || 'unknown';
   const name = call.customer?.name || phone;
   const endedReason = call.endedReason || null;
   const assistantId = call.assistantId || call.assistant?.id || null;
+  // Vapi's summaryPlan output — a plain-English recap of what happened on the
+  // call. This is what lets you glance at Follow Up and know *why* without
+  // re-listening to the recording.
+  const callSummary = msg.analysis?.summary || msg.summary || null;
+
+  console.log(`[vapi webhook] type=${msg.type || 'n/a'} endedReason=${endedReason} phone=${phone} hasAnalysis=${!!msg.analysis} hasStructuredData=${Object.keys(data).length > 0}`);
 
   const contactOutcome = mapEndedReason(endedReason);
   const status = resolveStatus(data);
@@ -248,6 +269,7 @@ app.post('/webhook/vapi', async (req, res) => {
     status,
     contact_outcome: contactOutcome,
     ended_reason: endedReason,
+    call_summary: callSummary,
     call_assistant_id: assistantId,
     zoom_time: data.zoom_time || null,
     objection: data.objection || null,
@@ -261,39 +283,54 @@ app.post('/webhook/vapi', async (req, res) => {
     await updateLeadById(lead.id, { next_attempt_at: nextAt });
   }
 
+  // Every Slack/email/SMS fired below also gets logged against the lead so
+  // it's visible on the dashboard, not just in the Slack channel history.
+  async function notify(channel, text, sendFn) {
+    try {
+      await sendFn();
+    } finally {
+      await appendNotification(lead.id, { channel, text }).catch(() => {});
+    }
+  }
+
   try {
     if (status === 'booked') {
       if (!lead.email) {
-        await sendSlack(`⚠️ Zoom booked with *${name}* but no email captured. Manual follow-up needed.`);
+        await notify('slack', `Zoom booked with ${name} but no email captured — needs manual follow-up.`,
+          () => sendSlack(`⚠️ Zoom booked with *${name}* but no email captured. Manual follow-up needed.`));
       } else {
         const joinUrl = await createZoomMeeting(`Call with ${name} — Alpha Logics`, data.zoom_time);
-        await sendEmail(
-          lead.email,
-          `Your call is booked${data.zoom_time ? ' — ' + data.zoom_time : ''}`,
-          `Hi ${name},\n\nYou're confirmed for a quick call about your website${data.zoom_time ? ' on ' + data.zoom_time : ''}.\n\nJoin here: ${joinUrl}\n\nWe'll walk through what you're looking for and how we can help — should take about 15 minutes, no pressure either way.\n\nTalk soon,\nAlpha Logics`
-        );
+        const emailText = `Hi ${name},\n\nYou're confirmed for a quick call about your website${data.zoom_time ? ' on ' + data.zoom_time : ''}.\n\nJoin here: ${joinUrl}\n\nWe'll walk through what you're looking for and how we can help — should take about 15 minutes, no pressure either way.\n\nTalk soon,\nAlpha Logics`;
+        await notify('email', `Sent Zoom confirmation to ${lead.email}`,
+          () => sendEmail(lead.email, `Your call is booked${data.zoom_time ? ' — ' + data.zoom_time : ''}`, emailText));
       }
-      await sendSlack(`✅ Zoom booked with *${name}*${data.zoom_time ? ' for ' + data.zoom_time : ''} — confirmation emailed.`);
+      await notify('slack', `Zoom booked with ${name}${data.zoom_time ? ' for ' + data.zoom_time : ''} — confirmation emailed.`,
+        () => sendSlack(`✅ Zoom booked with *${name}*${data.zoom_time ? ' for ' + data.zoom_time : ''} — confirmation emailed.`));
     } else if (status === 'wants_website_pending') {
-      await sendSlack(`🔨 *${name}* wants their site emailed.\nLead #${lead.id} — ${lead.email}\nReply: \`/send ${lead.id} https://link.com\` when it's ready.`);
+      await notify('slack', `${name} wants their site emailed once it's built.`,
+        () => sendSlack(`🔨 *${name}* wants their site emailed.\nLead #${lead.id} — ${lead.email}\nReply: \`/send ${lead.id} https://link.com\` when it's ready.`));
     } else if (status === 'bad_contact') {
-      await sendSlack(`📞 *${name}* was interested but the contact info didn't come through clean. Lead #${lead.id} — worth a manual callback.`);
+      await notify('slack', `${name} was interested but contact info was unclear — needs a manual callback.`,
+        () => sendSlack(`📞 *${name}* was interested but the contact info didn't come through clean. Lead #${lead.id} — worth a manual callback.`));
     } else if (contactOutcome === 'voicemail' || contactOutcome === 'no_answer') {
       // SMS nudge only on the first miss
       if (attempts === 1) {
-        await sendSms(phone, `Hi, this is Alpha Logics — tried reaching you about your website. Reply here anytime, or we'll try again soon.`);
+        await notify('sms', `Sent "tried reaching you" text nudge.`,
+          () => sendSms(phone, `Hi, this is Alpha Logics — tried reaching you about your website. Reply here anytime, or we'll try again soon.`));
       }
       // Silent-drop follow-up: attempt 3+ that hits voicemail gets an email
       // instead of yet another voicemail (repeated VMs read as spammy)
       if (attempts >= 3 && lead.email && contactOutcome === 'voicemail') {
-        await sendEmail(
-          lead.email,
-          'Quick follow-up from Alpha Logics',
-          `Hi ${name || 'there'},\n\nWe tried calling but missed you. If you're still interested in a free website review, just reply to this email or call us back.\n\nNo pressure either way.\n\nAlpha Logics`
-        ).catch(() => {});
+        await notify('email', `Sent silent-drop follow-up email (attempt ${attempts}, went to voicemail).`,
+          () => sendEmail(
+            lead.email,
+            'Quick follow-up from Alpha Logics',
+            `Hi ${name || 'there'},\n\nWe tried calling but missed you. If you're still interested in a free website review, just reply to this email or call us back.\n\nNo pressure either way.\n\nAlpha Logics`
+          )).catch(() => {});
       }
     } else if (contactOutcome === 'busy') {
-      await sendSlack(`📞 *${name}* was busy. Auto-retry scheduled for next window. Lead #${lead.id}`);
+      await notify('slack', `${name} was busy — auto-retry scheduled for next window.`,
+        () => sendSlack(`📞 *${name}* was busy. Auto-retry scheduled for next window. Lead #${lead.id}`));
     }
   } catch (e) {
     console.error('Post-call action failed:', e.message, e.code, e.stack);
@@ -326,6 +363,7 @@ app.post('/webhook/slack', async (req, res) => {
       const idx = all.findIndex(l => l.id === lead.id);
       all[idx].status = 'website_sent';
       await writeLeads(all);
+      await appendNotification(lead.id, { channel: 'email', text: `Sent finished website link: ${url}` }).catch(() => {});
       await sendSlack(`✅ Sent to *${lead.name}* (#${lead.id}).`);
     } catch (e) {
       await sendSlack(`⚠️ Failed to send to #${lead.id}: ${e.message}`);
@@ -344,7 +382,13 @@ app.post('/webhook/slack', async (req, res) => {
 app.get('/api/leads', requireKey, async (req, res) => {
   const leads = [...await readLeads()]
     .sort((a, b) => new Date(b.time) - new Date(a.time))
-    .map(l => ({ ...l, outcome: toDashboardOutcome(l.status) }));
+    .map(l => ({
+      ...l,
+      outcome: toDashboardOutcome(l.status),
+      ended_reason_label: endedReasonLabel(l.ended_reason),
+      call_summary: l.call_summary || null,
+      notifications: l.notifications || []
+    }));
   res.json({ leads });
 });
 
@@ -365,8 +409,12 @@ app.get('/leads/needs-follow-up', requireKey, async (req, res) => {
 });
 
 // ---------- Follow-up tab: everyone who needs a human, a callback, or an auto-redial ----------
-const FOLLOWUP_STATUSES = ['bad_contact', 'wants_website_pending', 'callback_requested', 'declined', 'no_answer', 'voicemail'];
-const CALLABLE_BY_AGENT = ['bad_contact', 'callback_requested', 'declined', 'no_answer', 'voicemail'];
+// Note: 'declined' (an explicit no during a connected call) is deliberately
+// excluded here — only genuinely-missed contact (no answer, voicemail, busy,
+// unclear info, callback requests) belongs in the active Follow Up queue.
+// A firm decline still shows up in the Leads tab, just not as "needs action".
+const FOLLOWUP_STATUSES = ['bad_contact', 'wants_website_pending', 'callback_requested', 'no_answer', 'voicemail'];
+const CALLABLE_BY_AGENT = ['bad_contact', 'callback_requested', 'no_answer', 'voicemail'];
 const RETRYABLE_OUTCOMES = ['no_answer', 'voicemail', 'busy', 'failed'];
 
 function followUpAction(lead) {
@@ -381,7 +429,8 @@ function followUpAction(lead) {
   }
   if (CALLABLE_BY_AGENT.includes(lead.status) || RETRYABLE_OUTCOMES.includes(lead.contact_outcome)) {
     const next = lead.next_attempt_at ? new Date(lead.next_attempt_at).toLocaleString() : 'soon';
-    const detail = `Attempt ${lead.call_attempts || 1}/${MAX_ATTEMPTS} · ${lead.contact_outcome || lead.status} · next: ${next}`;
+    const reason = endedReasonLabel(lead.ended_reason);
+    const detail = `Attempt ${lead.call_attempts || 1}/${MAX_ATTEMPTS} · ${reason} · next: ${next}`;
     return { kind: 'call', label: 'Call now', detail };
   }
   return { kind: 'none', label: '—', detail: '' };
@@ -399,7 +448,10 @@ app.get('/api/followup', requireKey, async (req, res) => {
         action: followUpAction(l),
         exhausted,
         next_attempt_at: l.next_attempt_at || null,
-        contact_outcome: l.contact_outcome || 'unknown'
+        contact_outcome: l.contact_outcome || 'unknown',
+        ended_reason_label: endedReasonLabel(l.ended_reason),
+        call_summary: l.call_summary || null,
+        notifications: l.notifications || []
       };
     });
   res.json({ leads });
@@ -445,6 +497,86 @@ app.post('/api/dnc', requireKey, async (req, res) => {
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
+});
+
+// ---------- CSV/Excel batch import + manual campaign start ----------
+// Old-lead spreadsheets go here. Import only queues them — nothing gets
+// called until you hit "Start Campaign" for that batch from the dashboard.
+function normalizeImportRow(row) {
+  const out = {};
+  Object.keys(row).forEach(k => {
+    const key = k.trim().toLowerCase();
+    if (key.includes('phone')) out.phone = row[k];
+    else if (key.includes('email')) out.email = row[k];
+    else if (key.includes('name')) out.name = row[k];
+  });
+  return out;
+}
+
+app.post('/api/leads/import', requireKey, upload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ ok: false, error: 'No file uploaded — attach a .csv or .xlsx file.' });
+  try {
+    const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    // raw:false keeps phone numbers as formatted text instead of letting
+    // Excel/XLSX coerce them into numbers (which silently drops a leading +)
+    const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
+    const rows = rawRows.map(normalizeImportRow).filter(r => r.phone);
+
+    if (!rows.length) {
+      return res.status(400).json({ ok: false, error: 'No rows with a usable phone number found. Make sure a column header contains "phone".' });
+    }
+
+    const batchId = 'batch_' + Date.now();
+    const batchName = (req.body && req.body.batchName) || req.file.originalname || batchId;
+    const result = await importLeads(rows, batchId, batchName);
+
+    await sendSlack(`📥 Imported *${batchName}* — ${result.total} leads (${result.inserted} new, ${result.updated} re-queued from existing). Nothing will be called until you hit Start in the Import tab.`).catch(() => {});
+    res.json({ ok: true, batchId, batchName, ...result });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+app.get('/api/batches', requireKey, async (req, res) => {
+  try {
+    const batches = await getBatches();
+    res.json({ batches });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+app.post('/api/campaign/start', requireKey, async (req, res) => {
+  const { batchId } = req.body || {};
+  if (!batchId) return res.status(400).json({ ok: false, error: 'batchId required' });
+
+  const leads = await readLeads();
+  const targets = leads.filter(l => l.batch_id === batchId && l.status === 'queued' && !l.do_not_call);
+  if (!targets.length) {
+    return res.status(404).json({ ok: false, error: 'No queued leads in this batch — it may already be started, or every lead in it is marked Do-Not-Call.' });
+  }
+
+  // Respond immediately; dialing continues in the background, staggered so
+  // Vapi/your phone number isn't hit with every call at once.
+  res.json({ ok: true, queued: targets.length });
+
+  (async () => {
+    await sendSlack(`▶️ Starting campaign *${targets[0].batch_name || batchId}* — dialing ${targets.length} leads, spaced ~20s apart.`).catch(() => {});
+    for (let i = 0; i < targets.length; i++) {
+      const lead = targets[i];
+      try {
+        await updateLeadById(lead.id, { status: 'campaign_calling' });
+        await redial(lead);
+      } catch (e) {
+        console.error(`Campaign call failed for lead ${lead.id}:`, e.message);
+        // Let it be retried by a future Start click instead of getting stuck
+        await updateLeadById(lead.id, { status: 'queued' }).catch(() => {});
+      }
+      if (i < targets.length - 1) await new Promise(r => setTimeout(r, 20000));
+    }
+    await sendSlack(`✅ Finished dialing all ${targets.length} leads in batch *${targets[0].batch_name || batchId}*. Outcomes will land in Follow Up as calls complete.`).catch(() => {});
+  })();
 });
 
 app.get('/cron/redial', async (req, res) => {

@@ -127,6 +127,27 @@ sets `do_not_call = true` immediately and it's respected by the redial cron,
 the dashboard's "Call Now" button, and the manual trigger endpoint — no code
 path can dial a DNC lead. You can also flag one manually from the dashboard.
 
+**Firm declines don't clutter the queue.** A lead who answers and explicitly
+says no (`status: 'declined'`) is different from one who was never actually
+reached — it's excluded from `FOLLOWUP_STATUSES`/`CALLABLE_BY_AGENT` on
+purpose, so the Follow Up tab only ever shows leads where contact genuinely
+hasn't happened yet (no answer, voicemail, busy, unclear info, callback
+requests). Declined leads still show in the Leads tab, just not flagged as
+needing action.
+
+**Why it needs follow-up, in plain English.** Every lead now carries:
+- `ended_reason_label` — Vapi's raw `call.endedReason` (e.g.
+  `customer-did-not-answer`, `assistant-ended-call-...`) translated into
+  something readable ("No answer", "Went to voicemail", "Customer hung up").
+  Shown in a **Reason** column on both the Leads and Follow Up tabs.
+- `call_summary` — Vapi's own summary of what was said on the last call
+  (from your `summaryPlan`). Shown as a tooltip in the Reason column and in
+  full at the top of the **Details** modal.
+- `notifications` — every Slack message, email, and SMS the server actually
+  sent for that lead, with timestamps. This is what answers "did we actually
+  message them" without needing to dig through Slack history — click
+  **Details** on any lead to see it.
+
 **Trigger it daily:**
 
 - Free option: [cron-job.org](https://cron-job.org) → new cron job → URL
@@ -148,22 +169,54 @@ the call pulse, the funnel, your action queue, and the full lead table —
 refreshes every 30s.
 
 The **Follow Up** tab shows, per lead: which attempt number it's on out of 6,
-what happened last time (no answer / voicemail / busy), and exactly when the
-next auto-attempt is scheduled. Click **History** on any lead (Leads tab or
-Follow Up tab) to see the full timestamped attempt log. **Mark DNC** on any
-row permanently stops all future dialing for that lead — use it the moment
-someone asks to be left alone.
+what happened last time in plain English (no answer / voicemail / busy —
+see the **Reason** column), and exactly when the next auto-attempt is
+scheduled. Click **Details** on any lead (Leads tab or Follow Up tab) to see
+Vapi's call summary, the full timestamped attempt log, and every Slack/email/
+SMS message actually sent for that lead. **Mark DNC** on any row permanently
+stops all future dialing for that lead — use it the moment someone asks to be
+left alone.
 
-**Why the key matters:** `/api/leads` and `/api/stats` return real customer
-names, emails, and phone numbers. Without `DASHBOARD_KEY` set, the server
-refuses to serve them at all (fails closed) rather than exposing them to
-anyone who finds the URL. Don't share the `?key=...` link outside your team.
+**Why the key matters:** `/api/leads`, `/api/stats`, and `/api/followup`
+return real customer names, emails, and phone numbers. Without
+`DASHBOARD_KEY` set, the server refuses to serve them at all (fails closed)
+rather than exposing them to anyone who finds the URL. Don't share the
+`?key=...` link outside your team.
 
-If you ever want to host the HTML file separately again (Netlify/Vercel), it
-still works — the page falls back to a manual "API base" field when no
-same-origin key is present.
+## 8. Import — bulk-upload old leads and start the calls yourself
 
-## 8. Evals — protect the prompt before you change it again
+The **Import** tab lets you upload a CSV or Excel file of past leads (or any
+new list) and re-engage them under your control — nothing dials automatically.
+
+**Uploading:** any `.csv`, `.xlsx`, or `.xls` file works, as long as one
+column header contains the word "phone" (case-insensitive — "Phone Number",
+"phone", "Contact Phone" all match). Name and email columns are optional but
+recommended. Phone numbers are normalized automatically (adds `+1` to a bare
+10-digit US number, adds a missing `+`, strips formatting like `(555)
+123-4567`) so messy spreadsheet exports still work.
+
+Each upload becomes a **batch** — give it a name in the box next to the
+upload button, or it'll use the filename. Every lead in the batch lands with
+status `queued` and sits there until you act on it.
+
+**Starting the calls:** the Import tab lists every batch with a live count of
+how many leads in it are still `queued` vs already `started`. Click **Start
+Campaign** on a batch and the server dials that batch's queued leads one at a
+time, spaced ~20 seconds apart, in the background — you get a Slack message
+when it kicks off and another when the whole batch has been dialed. From
+there, every lead in it is a completely normal lead: if someone doesn't pick
+up, the exact same 6-attempt staggered cadence from section 6 takes over
+automatically for that lead. Nothing extra to do.
+
+**Re-uploading a list:** if a phone number in your CSV already exists in the
+system, it's matched to that existing lead (their history is kept — nothing
+is duplicated) and re-queued into the new batch, so you can re-run a list of
+old declines or no-answers just by uploading it again.
+
+**Safety still applies:** a lead already marked Do-Not-Call is skipped by
+Start Campaign even if it's sitting in a queued batch.
+
+## 9. Evals — protect the prompt before you change it again
 
 In the Vapi dashboard, open **Evals**:
 
@@ -188,6 +241,8 @@ In the Vapi dashboard, open **Evals**:
   miss and email instead of a 3rd+ voicemail.
 - Anyone who says stop calling is permanently excluded from every future dial —
   check the Follow Up tab if you ever need to confirm someone's DNC status.
+- Got an old lead list to work through? Upload it in the Import tab and hit
+  Start Campaign when you're ready — see section 8.
 - Check the dashboard whenever you want the full picture at a glance.
 
 ## What's a placeholder you should adjust
