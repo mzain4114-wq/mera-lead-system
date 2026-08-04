@@ -70,6 +70,28 @@ async function getDueForRedial() {
   });
 }
 
+// Builds a short plain-English recap of the lead's situation so the
+// follow-up assistant (which is prompted to *expect* this context) knows
+// why it's calling again instead of opening cold.
+function buildLastContext(lead) {
+  const parts = [];
+  if (lead.status === 'bad_contact') parts.push('they were interested but their email/contact info came through unclear on the call');
+  else if (lead.status === 'wants_website_pending') parts.push('they asked for a website to be built and sent to them');
+  else if (lead.status === 'callback_requested') parts.push('they asked to be called back at a better time');
+  else if (lead.status === 'declined') parts.push('they were hesitant, but not a firm no');
+  else if (lead.status === 'queued' || !lead.call_attempts) parts.push('this is the first time we are calling them — no prior contact yet');
+  else parts.push('they did not pick up on the last attempt');
+  if (lead.objection) parts.push(`their stated reason/objection was: ${lead.objection}`);
+  if (lead.zoom_time) parts.push(`they had discussed a time of: ${lead.zoom_time}`);
+  return parts.join('; ');
+}
+
+// Every call this function makes is, by definition, a *repeat* touch —
+// either the auto-redial cron working through attempts 2-6, or a CSV
+// campaign re-engaging leads that already have history. Both belong to
+// the follow-up assistant (VAPI_FOLLOWUP_ASSISTANT_ID), which is the one
+// actually prompted to handle "we're calling again" — the main assistant
+// has no such instructions and would open as if it were a fresh cold call.
 async function redial(lead) {
   const res = await fetch('https://api.vapi.ai/call', {
     method: 'POST',
@@ -78,9 +100,17 @@ async function redial(lead) {
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      assistantId: process.env.VAPI_ASSISTANT_ID,
+      assistantId: process.env.VAPI_FOLLOWUP_ASSISTANT_ID,
       phoneNumberId: process.env.VAPI_PHONE_NUMBER_ID,
-      customer: { number: lead.phone, name: lead.name }
+      customer: { number: lead.phone },
+      assistantOverrides: {
+        variableValues: {
+          name: lead.name || 'there',
+          business: lead.name || 'your business',
+          last_context: buildLastContext(lead),
+          attempt_number: String((lead.call_attempts || 1) + 1)
+        }
+      }
     })
   });
   if (!res.ok) throw new Error(`Vapi call failed for ${lead.phone}: ${res.status}`);

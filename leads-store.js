@@ -126,13 +126,22 @@ async function upsertLead(fields) {
     return lead;
   }
 
-  const isFollowUpCall = fields.call_assistant_id === process.env.VAPI_FOLLOWUP_ASSISTANT_ID;
+  // Every completed call is one real touch, full stop — call_attempts is the
+  // single source of truth the cadence (MAX_ATTEMPTS, computeNextAttemptAt)
+  // relies on, so it must always advance regardless of which Vapi assistant
+  // placed the call. (Previously this branched on "was it the follow-up
+  // assistant" to distinguish an automated cadence retry from a manual
+  // dashboard nudge — but now that redial() also uses the follow-up
+  // assistant for cadence retries, that signal no longer means what it used
+  // to, so it's been retired. follow_up_attempts is a separate, purely
+  // informational counter that the dashboard's manual "Call Now" trigger
+  // bumps directly at click-time — it is not touched here, so it can't be
+  // double-counted when this webhook later fires for that same call.)
   const updated = {
     ...existing,
     ...fields,
     last_attempt_at: now,
-    call_attempts: isFollowUpCall ? (existing.call_attempts || 1) : (existing.call_attempts || 0) + 1,
-    follow_up_attempts: isFollowUpCall ? (existing.follow_up_attempts || 0) + 1 : (existing.follow_up_attempts || 0)
+    call_attempts: (existing.call_attempts || 0) + 1
   };
 
   // Append to the full attempt audit trail (not just a counter)
@@ -142,7 +151,7 @@ async function upsertLead(fields) {
     channel: 'voice',
     ended_reason: fields.ended_reason || null,
     summary: fields.call_summary || null,
-    attempt_number: isFollowUpCall ? (existing.follow_up_attempts || 0) + 1 : (existing.call_attempts || 0) + 1
+    attempt_number: updated.call_attempts
   };
   updated.attempt_history = [...(existing.attempt_history || []), historyEntry];
 
